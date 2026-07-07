@@ -110,6 +110,11 @@ canvas {
   grid-column: 3;
 }
 
+.hud__key--space {
+  grid-column: 1 / -1;
+  width: 98px;
+}
+
 .loading {
   position: fixed;
   inset: 0;

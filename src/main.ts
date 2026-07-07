@@ -1,40 +1,27 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 import "./style.css";
+import {
+  FIXED_TIMESTEP,
+  WORLD_SIZE,
+  createDrivingWorld,
+  defaultVehicleConfig,
+  type InputState,
+  type VehicleConfig,
+  type VehicleTelemetry,
+  type WheelTelemetry,
+  VehiclePhysics,
+} from "./vehiclePhysics";
 
-type InputState = {
-  throttle: boolean;
-  brake: boolean;
-  steerLeft: boolean;
-  steerRight: boolean;
+type WheelVisual = {
+  root: THREE.Group;
+  steerPivot: THREE.Group;
+  spinPivot: THREE.Group;
+  strut: THREE.Mesh;
 };
 
-type VehicleConfig = {
-  mass: number;
-  engineForce: number;
-  reverseForce: number;
-  brakeForce: number;
-  steerTorque: number;
-  lateralGrip: number;
-  drag: number;
-  maxSteerAngle: number;
-};
-
-const FIXED_TIMESTEP = 1 / 60;
 const MAX_FRAME_DELTA = 0.1;
 const KEY_TAP_HOLD_MS = 90;
-const WORLD_SIZE = 480;
-
-const vehicleConfig: VehicleConfig = {
-  mass: 1800,
-  engineForce: 46000,
-  reverseForce: 22000,
-  brakeForce: 52000,
-  steerTorque: 22000,
-  lateralGrip: 0.72,
-  drag: 1.2,
-  maxSteerAngle: THREE.MathUtils.degToRad(28),
-};
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -64,6 +51,7 @@ hud.innerHTML = `
     <span class="hud__key hud__key--left">←</span>
     <span class="hud__key hud__key--down">↓</span>
     <span class="hud__key hud__key--right">→</span>
+    <span class="hud__key hud__key--space">SPACE</span>
   </div>
 `;
 app.append(hud);
@@ -78,6 +66,7 @@ const inputState: InputState = {
   brake: false,
   steerLeft: false,
   steerRight: false,
+  handbrake: false,
 };
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -120,121 +109,44 @@ createFlatWorld(scene);
 
 class VehicleController {
   private readonly group = new THREE.Group();
-  private readonly body: RAPIER.RigidBody;
-  private readonly wheels: THREE.Group[] = [];
-  private readonly wheelOffsets = [
-    new THREE.Vector3(-0.92, 0.03, 1.45),
-    new THREE.Vector3(0.92, 0.03, 1.45),
-    new THREE.Vector3(-0.92, 0.03, -1.32),
-    new THREE.Vector3(0.92, 0.03, -1.32),
-  ];
-  private readonly forward = new THREE.Vector3();
-  private readonly side = new THREE.Vector3();
-  private readonly worldVelocity = new THREE.Vector3();
-  private wheelSpin = 0;
-  private latestSlip = 0;
+  private readonly physics: VehiclePhysics;
+  private readonly wheelVisuals: WheelVisual[] = [];
+  private readonly wheelSpin: number[] = [];
+  private telemetry: VehicleTelemetry;
 
-  constructor(
-    private readonly world: RAPIER.World,
-    private readonly config: VehicleConfig,
-  ) {
-    this.body = this.createBody();
+  constructor(world: RAPIER.World, private readonly config: VehicleConfig) {
+    this.physics = new VehiclePhysics(world, config);
+    this.telemetry = this.physics.getTelemetry();
     this.createVisuals();
     scene.add(this.group);
   }
 
   updatePhysics(input: InputState, dt: number) {
-    const rotation = this.body.rotation();
-    const quaternion = new THREE.Quaternion(rotation.x, rotation.y, rotation.z, rotation.w);
-    this.forward.set(0, 0, 1).applyQuaternion(quaternion).normalize();
-    this.side.set(1, 0, 0).applyQuaternion(quaternion).normalize();
-
-    const velocity = this.body.linvel();
-    this.worldVelocity.set(velocity.x, velocity.y, velocity.z);
-
-    const forwardSpeed = this.worldVelocity.dot(this.forward);
-    const lateralSpeed = this.worldVelocity.dot(this.side);
-    const steerInput = Number(input.steerRight) - Number(input.steerLeft);
-    const isNearlyStopped = Math.abs(forwardSpeed) < 1.2;
-    const brakeAsReverse = input.brake && isNearlyStopped;
-
-    if (input.throttle) {
-      this.applyForce(this.forward, this.config.engineForce * dt);
-    }
-
-    if (brakeAsReverse) {
-      this.applyForce(this.forward, -this.config.reverseForce * dt);
-    } else if (input.brake) {
-      const brakeDirection = forwardSpeed > 0 ? -1 : 1;
-      const brakeImpulse = Math.min(
-        Math.abs(forwardSpeed) * this.config.mass,
-        this.config.brakeForce * dt,
-      );
-      this.applyForce(this.forward, brakeDirection * brakeImpulse);
-    }
-
-    if (steerInput !== 0 && Math.abs(forwardSpeed) > 0.45) {
-      const directionFactor = forwardSpeed >= 0 ? 1 : -1;
-      const speedFactor = THREE.MathUtils.clamp(Math.abs(forwardSpeed) / 16, 0.25, 1);
-      this.body.applyTorqueImpulse(
-        {
-          x: 0,
-          y: steerInput * this.config.steerTorque * speedFactor * directionFactor * dt,
-          z: 0,
-        },
-        true,
-      );
-    }
-
-    const gripFactor = input.brake ? this.config.lateralGrip * 0.6 : this.config.lateralGrip;
-    const lateralImpulse = -lateralSpeed * this.config.mass * gripFactor * dt;
-    this.applyForce(this.side, lateralImpulse);
-
-    const dragImpulse = -forwardSpeed * Math.abs(forwardSpeed) * this.config.drag * dt;
-    this.applyForce(this.forward, dragImpulse);
-
-    this.latestSlip = THREE.MathUtils.clamp(Math.abs(lateralSpeed) / 12, 0, 1);
-    this.animateWheels(input, forwardSpeed, steerInput, dt);
+    this.physics.update(input, dt);
+    this.telemetry = this.physics.getTelemetry();
+    this.telemetry.wheels.forEach((wheel, index) => {
+      this.wheelSpin[index] = (this.wheelSpin[index] ?? 0) + wheel.angularVelocity * dt;
+    });
   }
 
   syncVisuals() {
-    const translation = this.body.translation();
-    const rotation = this.body.rotation();
-    this.group.position.set(translation.x, translation.y, translation.z);
-    this.group.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+    const translation = this.physics.getPosition();
+    const rotation = this.physics.getQuaternion();
+    this.group.position.copy(translation);
+    this.group.quaternion.copy(rotation);
+    this.syncWheelVisuals(this.telemetry.wheels);
   }
 
   getPosition() {
-    const position = this.body.translation();
-    return new THREE.Vector3(position.x, position.y, position.z);
+    return this.physics.getPosition();
   }
 
   getQuaternion() {
-    const rotation = this.body.rotation();
-    return new THREE.Quaternion(rotation.x, rotation.y, rotation.z, rotation.w);
+    return this.physics.getQuaternion();
   }
 
-  getSpeedKmh() {
-    const velocity = this.body.linvel();
-    return Math.sqrt(velocity.x ** 2 + velocity.z ** 2) * 3.6;
-  }
-
-  getSlipPercent() {
-    return Math.round(this.latestSlip * 100);
-  }
-
-  private createBody() {
-    const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(0, 0.85, 0)
-      .setLinearDamping(0.15)
-      .setAngularDamping(1.8)
-      .setAdditionalMass(this.config.mass);
-    const body = this.world.createRigidBody(bodyDesc);
-    const colliderDesc = RAPIER.ColliderDesc.cuboid(0.95, 0.35, 1.65)
-      .setFriction(1.2)
-      .setRestitution(0.05);
-    this.world.createCollider(colliderDesc, body);
-    return body;
+  getTelemetry() {
+    return this.telemetry;
   }
 
   private createVisuals() {
@@ -262,71 +174,95 @@ class VehicleController {
     cabin.castShadow = true;
     this.group.add(cabin);
 
-    this.wheelOffsets.forEach((offset, index) => {
-      const wheel = createWheelMesh();
-      wheel.position.copy(offset);
-      wheel.userData.basePosition = offset.clone();
-      wheel.userData.isFront = index < 2;
-      this.group.add(wheel);
-      this.wheels.push(wheel);
+    const strutMaterial = new THREE.MeshStandardMaterial({
+      color: 0x20272b,
+      roughness: 0.72,
+      metalness: 0.12,
     });
 
-    return chassis;
+    for (const wheel of this.config.wheels) {
+      const visual = createWheelMesh(this.config, strutMaterial);
+      visual.root.position.copy(
+        wheel.localHardpoint.clone().add(new THREE.Vector3(0, -this.config.suspensionRestLength, 0)),
+      );
+      this.group.add(visual.strut, visual.root);
+      this.wheelVisuals.push(visual);
+      this.wheelSpin.push(0);
+    }
   }
 
-  private applyForce(direction: THREE.Vector3, impulse: number) {
-    this.body.applyImpulse(
-      {
-        x: direction.x * impulse,
-        y: direction.y * impulse,
-        z: direction.z * impulse,
-      },
-      true,
-    );
-  }
+  private syncWheelVisuals(wheels: WheelTelemetry[]) {
+    for (const [index, wheel] of wheels.entries()) {
+      const visual = this.wheelVisuals[index];
+      visual.root.position.copy(wheel.localWheelCenter);
+      visual.steerPivot.rotation.order = "YXZ";
+      visual.steerPivot.rotation.y = wheel.steeringAngle;
+      visual.steerPivot.rotation.z = wheel.isLeft ? -wheel.camber : wheel.camber;
+      visual.spinPivot.rotation.x = this.wheelSpin[index] ?? 0;
 
-  private animateWheels(input: InputState, forwardSpeed: number, steerInput: number, dt: number) {
-    const steerAngle = steerInput * this.config.maxSteerAngle;
-    this.wheelSpin += forwardSpeed * dt * 2.4;
-
-    for (const wheel of this.wheels) {
-      const basePosition = wheel.userData.basePosition as THREE.Vector3;
-      const isFront = Boolean(wheel.userData.isFront);
-      wheel.position.copy(basePosition);
-      wheel.rotation.order = "YXZ";
-      wheel.rotation.y = isFront ? steerAngle : 0;
-      wheel.rotation.x = this.wheelSpin;
-      wheel.rotation.z = Math.PI / 2;
-      wheel.scale.y = input.brake && Math.abs(forwardSpeed) > 2 ? 0.96 : 1;
+      const strutLength = Math.max(
+        0.1,
+        Math.abs(wheel.localHardpoint.y - wheel.localWheelCenter.y),
+      );
+      visual.strut.position.set(
+        wheel.localHardpoint.x,
+        wheel.localHardpoint.y - strutLength / 2,
+        wheel.localHardpoint.z,
+      );
+      visual.strut.scale.set(1, strutLength, 1);
     }
   }
 }
 
-function createWheelMesh() {
-  const group = new THREE.Group();
+function createWheelMesh(config: VehicleConfig, strutMaterial: THREE.Material): WheelVisual {
+  const root = new THREE.Group();
+  const steerPivot = new THREE.Group();
+  const spinPivot = new THREE.Group();
+  root.add(steerPivot);
+  steerPivot.add(spinPivot);
+
+  const tireMaterial = new THREE.MeshStandardMaterial({
+    color: 0x15191c,
+    roughness: 0.88,
+    metalness: 0.02,
+  });
+  const hubMaterial = new THREE.MeshStandardMaterial({
+    color: 0xc3c9c9,
+    roughness: 0.35,
+    metalness: 0.45,
+  });
   const tire = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.36, 0.36, 0.28, 24),
-    new THREE.MeshStandardMaterial({
-      color: 0x15191c,
-      roughness: 0.88,
-      metalness: 0.02,
-    }),
+    new THREE.CylinderGeometry(config.wheelRadius, config.wheelRadius, config.wheelWidth, 28),
+    tireMaterial,
   );
   const hub = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.18, 0.18, 0.3, 18),
-    new THREE.MeshStandardMaterial({
-      color: 0xc3c9c9,
-      roughness: 0.35,
-      metalness: 0.45,
-    }),
+    new THREE.CylinderGeometry(
+      config.wheelRadius * 0.48,
+      config.wheelRadius * 0.48,
+      config.wheelWidth + 0.02,
+      18,
+    ),
+    hubMaterial,
   );
+  const spokeA = new THREE.Mesh(
+    new THREE.BoxGeometry(config.wheelWidth * 0.5, 0.055, config.wheelRadius * 1.45),
+    hubMaterial,
+  );
+  const spokeB = new THREE.Mesh(
+    new THREE.BoxGeometry(config.wheelWidth * 0.5, config.wheelRadius * 1.45, 0.055),
+    hubMaterial,
+  );
+  const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1, 10), strutMaterial);
   tire.castShadow = true;
   tire.receiveShadow = true;
   hub.castShadow = true;
+  spokeA.castShadow = true;
+  spokeB.castShadow = true;
+  strut.castShadow = true;
   tire.rotation.z = Math.PI / 2;
   hub.rotation.z = Math.PI / 2;
-  group.add(tire, hub);
-  return group;
+  spinPivot.add(tire, hub, spokeA, spokeB);
+  return { root, steerPivot, spinPivot, strut };
 }
 
 function createFlatWorld(targetScene: THREE.Scene) {
@@ -406,16 +342,6 @@ function addFlatBox(
   targetScene.add(mesh);
 }
 
-function createPhysicsWorld() {
-  const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
-  world.timestep = FIXED_TIMESTEP;
-  const groundColliderDesc = RAPIER.ColliderDesc.cuboid(WORLD_SIZE / 2, 0.1, WORLD_SIZE / 2)
-    .setTranslation(0, -0.1, 0)
-    .setFriction(1.4);
-  world.createCollider(groundColliderDesc);
-  return world;
-}
-
 function updateCamera(vehicle: VehicleController, dt: number) {
   const position = vehicle.getPosition();
   const rotation = vehicle.getQuaternion();
@@ -434,6 +360,8 @@ function bindInput(targetInput: InputState) {
     ArrowDown: "brake",
     ArrowLeft: "steerLeft",
     ArrowRight: "steerRight",
+    Space: "handbrake",
+    " ": "handbrake",
   };
   const releaseTimers: Partial<Record<keyof InputState, number>> = {};
   const getAction = (event: KeyboardEvent) => keyMap[event.code] ?? keyMap[event.key];
@@ -471,8 +399,8 @@ function resize() {
 
 async function start() {
   await initRapier();
-  const world = createPhysicsWorld();
-  const vehicle = new VehicleController(world, vehicleConfig);
+  const world = createDrivingWorld();
+  const vehicle = new VehicleController(world, defaultVehicleConfig);
   bindInput(inputState);
   startDevAutodrive();
   loading.classList.add("loading--hidden");
@@ -494,11 +422,12 @@ async function start() {
     vehicle.syncVisuals();
     updateCamera(vehicle, frameDelta);
 
+    const telemetry = vehicle.getTelemetry();
     if (speedValue) {
-      speedValue.textContent = `${Math.round(vehicle.getSpeedKmh())} km/h`;
+      speedValue.textContent = `${Math.round(telemetry.speedKmh)} km/h`;
     }
     if (slipValue) {
-      slipValue.textContent = `${vehicle.getSlipPercent()}%`;
+      slipValue.textContent = `${telemetry.slipPercent}%`;
     }
     if (devStatusValue) {
       const position = vehicle.getPosition();
@@ -509,7 +438,14 @@ async function start() {
           y: Number(position.y.toFixed(2)),
           z: Number(position.z.toFixed(2)),
         },
-        speed: Math.round(vehicle.getSpeedKmh()),
+        speed: Math.round(telemetry.speedKmh),
+        signedSpeed: Math.round(telemetry.signedSpeedKmh),
+        heading: Number(telemetry.headingDegrees.toFixed(1)),
+        steering: Number(telemetry.steeringDegrees.toFixed(1)),
+        pitch: Number(telemetry.pitchDegrees.toFixed(1)),
+        roll: Number(telemetry.rollDegrees.toFixed(1)),
+        suspension: telemetry.wheels.map((wheel) => Number(wheel.suspensionLength.toFixed(2))),
+        loads: telemetry.wheels.map((wheel) => Math.round(wheel.normalLoad)),
         stage: devAutodriveStage,
       });
     }
@@ -531,26 +467,67 @@ function startDevAutodrive() {
     return;
   }
 
+  const mode = params.get("autodrive");
+  if (mode === "left" || mode === "right") {
+    startDevSteeringRun(mode);
+    return;
+  }
+
   devAutodriveStage = "scheduled";
   window.setTimeout(() => {
     devAutodriveStage = "throttle";
     inputState.throttle = true;
   }, 1000);
   window.setTimeout(() => {
-    devAutodriveStage = "steer";
+    devAutodriveStage = "steer-left";
     inputState.throttle = true;
     inputState.steerLeft = true;
   }, 3500);
   window.setTimeout(() => {
-    devAutodriveStage = "brake";
-    inputState.throttle = false;
+    devAutodriveStage = "steer-right";
     inputState.steerLeft = false;
+    inputState.steerRight = true;
+  }, 5200);
+  window.setTimeout(() => {
+    devAutodriveStage = "handbrake";
+    inputState.throttle = false;
+    inputState.steerRight = false;
+    inputState.handbrake = true;
+  }, 6900);
+  window.setTimeout(() => {
+    devAutodriveStage = "brake";
+    inputState.handbrake = false;
     inputState.brake = true;
-  }, 5500);
+  }, 8300);
+  window.setTimeout(() => {
+    devAutodriveStage = "reverse";
+    inputState.brake = true;
+  }, 10300);
   window.setTimeout(() => {
     devAutodriveStage = "done";
     inputState.brake = false;
-  }, 7000);
+    inputState.handbrake = false;
+  }, 12200);
+}
+
+function startDevSteeringRun(direction: "left" | "right") {
+  const steeringKey = direction === "left" ? "steerLeft" : "steerRight";
+  devAutodriveStage = `scheduled-${direction}`;
+  window.setTimeout(() => {
+    devAutodriveStage = "throttle";
+    inputState.throttle = true;
+  }, 500);
+  window.setTimeout(() => {
+    devAutodriveStage = `steer-${direction}`;
+    inputState.throttle = true;
+    inputState[steeringKey] = true;
+  }, 1100);
+  window.setTimeout(() => {
+    devAutodriveStage = "done";
+    inputState.throttle = false;
+    inputState.steerLeft = false;
+    inputState.steerRight = false;
+  }, 3800);
 }
 
 function createDevStatusElement(root: HTMLDivElement) {
