@@ -33,10 +33,24 @@ export type VehicleConfig = {
   bumpDamping: number;
   reboundDamping: number;
   maxSuspensionForce: number;
+  bumpStopRange: number;
+  bumpStopRate: number;
+  bumpStopDamping: number;
+  maxBumpStopForce: number;
   frontAntiRoll: number;
   rearAntiRoll: number;
   engineTorque: number;
   reverseTorque: number;
+  gearRatios: number[];
+  reverseGearRatio: number;
+  finalDriveRatio: number;
+  drivetrainEfficiency: number;
+  idleRpm: number;
+  redlineRpm: number;
+  shiftUpRpm: number;
+  shiftDownRpm: number;
+  engineBrakingTorque: number;
+  differentialLock: number;
   brakeTorque: number;
   handbrakeTorque: number;
   brakeBias: number;
@@ -48,6 +62,14 @@ export type VehicleConfig = {
   corneringStiffness: number;
   handbrakeCorneringStiffness: number;
   longitudinalStiffness: number;
+  longitudinalPeakSlip: number;
+  longitudinalSlideSlip: number;
+  longitudinalSlideGrip: number;
+  lateralPeakSlipAngle: number;
+  lateralSlideSlipAngle: number;
+  lateralSlideGrip: number;
+  tireForceCoupling: number;
+  rearPowerOversteer: number;
   rollingResistance: number;
   camberAtDroop: number;
   camberAtRest: number;
@@ -65,6 +87,7 @@ export type WheelTelemetry = {
   localWheelCenter: THREE.Vector3;
   suspensionLength: number;
   compression: number;
+  bumpStopForce: number;
   normalLoad: number;
   steeringAngle: number;
   camber: number;
@@ -73,12 +96,17 @@ export type WheelTelemetry = {
   longitudinalSlip: number;
   lateralForce: number;
   longitudinalForce: number;
+  driveTorque: number;
+  brakeTorque: number;
+  tractionUsage: number;
   contactPoint: THREE.Vector3 | null;
 };
 
 export type VehicleTelemetry = {
   speedKmh: number;
   signedSpeedKmh: number;
+  engineRpm: number;
+  gear: number;
   headingDegrees: number;
   steeringDegrees: number;
   slipPercent: number;
@@ -105,37 +133,59 @@ export const WORLD_SIZE = 480;
 // Three/Rapier are right-handed. With the chassis nose on local +Z and up on
 // local +Y, vehicle-left is local +X and vehicle-right is local -X.
 export const defaultVehicleConfig: VehicleConfig = {
-  mass: 1800,
-  chassisStartHeight: 1.08,
+  mass: 2750,
+  chassisStartHeight: 1.36,
   chassisHalfExtents: new THREE.Vector3(0.95, 0.34, 1.65),
-  centerOfMass: new THREE.Vector3(0, -0.24, 0.05),
-  principalAngularInertia: new THREE.Vector3(760, 1280, 560),
+  centerOfMass: new THREE.Vector3(0, -0.32, 0.08),
+  principalAngularInertia: new THREE.Vector3(1320, 2320, 1020),
   wheelRadius: 0.36,
   wheelWidth: 0.3,
-  wheelInertia: 1.7,
-  suspensionRestLength: 0.54,
-  suspensionBumpTravel: 0.22,
-  suspensionDroopTravel: 0.28,
-  springRate: 64_000,
-  bumpDamping: 5_200,
-  reboundDamping: 7_100,
-  maxSuspensionForce: 16_000,
-  frontAntiRoll: 5_600,
-  rearAntiRoll: 4_200,
-  engineTorque: 1_620,
-  reverseTorque: 1_060,
-  brakeTorque: 1_850,
+  wheelInertia: 2.15,
+  suspensionRestLength: 0.78,
+  suspensionBumpTravel: 0.26,
+  suspensionDroopTravel: 0.42,
+  springRate: 36_000,
+  bumpDamping: 6_100,
+  reboundDamping: 9_400,
+  maxSuspensionForce: 18_500,
+  bumpStopRange: 0.12,
+  bumpStopRate: 215_000,
+  bumpStopDamping: 13_000,
+  maxBumpStopForce: 48_000,
+  frontAntiRoll: 0,
+  rearAntiRoll: 0,
+  engineTorque: 680,
+  reverseTorque: 470,
+  gearRatios: [3.2, 1.78],
+  reverseGearRatio: 2.9,
+  finalDriveRatio: 3.73,
+  drivetrainEfficiency: 0.86,
+  idleRpm: 850,
+  redlineRpm: 6_200,
+  shiftUpRpm: 5_450,
+  shiftDownRpm: 2_050,
+  engineBrakingTorque: 55,
+  differentialLock: 0.42,
+  brakeTorque: 2_250,
   handbrakeTorque: 2_800,
   brakeBias: 0.72,
   maxSteerAngle: THREE.MathUtils.degToRad(31),
   ackermann: 0.22,
-  frictionCoefficient: 1.04,
+  frictionCoefficient: 0.98,
   handbrakeFrictionCoefficient: 0.62,
-  loadSensitivity: 0.14,
-  corneringStiffness: 4.4,
+  loadSensitivity: 0.2,
+  corneringStiffness: 3.7,
   handbrakeCorneringStiffness: 1.5,
-  longitudinalStiffness: 7.6,
-  rollingResistance: 0.08,
+  longitudinalStiffness: 8.6,
+  longitudinalPeakSlip: 0.12,
+  longitudinalSlideSlip: 0.9,
+  longitudinalSlideGrip: 0.54,
+  lateralPeakSlipAngle: THREE.MathUtils.degToRad(9.5),
+  lateralSlideSlipAngle: THREE.MathUtils.degToRad(31),
+  lateralSlideGrip: 0.54,
+  tireForceCoupling: 0.92,
+  rearPowerOversteer: 0.62,
+  rollingResistance: 0.1,
   camberAtDroop: THREE.MathUtils.degToRad(1.2),
   camberAtRest: THREE.MathUtils.degToRad(-0.3),
   camberAtBump: THREE.MathUtils.degToRad(-2.4),
@@ -172,6 +222,20 @@ export const defaultVehicleConfig: VehicleConfig = {
   ],
 };
 
+export function cloneVehicleConfig(config: VehicleConfig = defaultVehicleConfig): VehicleConfig {
+  return {
+    ...config,
+    gearRatios: [...config.gearRatios],
+    chassisHalfExtents: config.chassisHalfExtents.clone(),
+    centerOfMass: config.centerOfMass.clone(),
+    principalAngularInertia: config.principalAngularInertia.clone(),
+    wheels: config.wheels.map((wheel) => ({
+      ...wheel,
+      localHardpoint: wheel.localHardpoint.clone(),
+    })),
+  };
+}
+
 export function createDrivingWorld() {
   const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
   world.timestep = FIXED_TIMESTEP;
@@ -194,6 +258,9 @@ export class VehiclePhysics {
   private latestForwardSpeed = 0;
   private latestLateralSpeed = 0;
   private steeringAngle = 0;
+  private currentGearIndex = 0;
+  private gearDisplay = 1;
+  private engineRpm = defaultVehicleConfig.idleRpm;
 
   constructor(
     private readonly world: RAPIER.World,
@@ -212,6 +279,7 @@ export class VehiclePhysics {
       suspensionLength: config.suspensionRestLength,
       previousSuspensionLength: config.suspensionRestLength,
       compression: 0,
+      bumpStopForce: 0,
       normalLoad: 0,
       steeringAngle: 0,
       camber: config.camberAtRest,
@@ -220,6 +288,9 @@ export class VehiclePhysics {
       longitudinalSlip: 0,
       lateralForce: 0,
       longitudinalForce: 0,
+      driveTorque: 0,
+      brakeTorque: 0,
+      tractionUsage: 0,
       contactPoint: null,
     }));
   }
@@ -242,6 +313,8 @@ export class VehiclePhysics {
     return {
       speedKmh: Math.abs(this.latestForwardSpeed) * 3.6,
       signedSpeedKmh: this.latestForwardSpeed * 3.6,
+      engineRpm: this.engineRpm,
+      gear: this.gearDisplay,
       headingDegrees: THREE.MathUtils.radToDeg(Math.atan2(this.forward.x, this.forward.z)),
       steeringDegrees: THREE.MathUtils.radToDeg(this.steeringAngle),
       slipPercent: Math.round(
@@ -262,6 +335,7 @@ export class VehiclePhysics {
         localWheelCenter: wheel.localWheelCenter.clone(),
         suspensionLength: wheel.suspensionLength,
         compression: wheel.compression,
+        bumpStopForce: wheel.bumpStopForce,
         normalLoad: wheel.normalLoad,
         steeringAngle: wheel.steeringAngle,
         camber: wheel.camber,
@@ -270,6 +344,9 @@ export class VehiclePhysics {
         longitudinalSlip: wheel.longitudinalSlip,
         lateralForce: wheel.lateralForce,
         longitudinalForce: wheel.longitudinalForce,
+        driveTorque: wheel.driveTorque,
+        brakeTorque: wheel.brakeTorque,
+        tractionUsage: wheel.tractionUsage,
         contactPoint: wheel.contactPoint?.clone() ?? null,
       })),
     };
@@ -283,6 +360,16 @@ export class VehiclePhysics {
   getQuaternion() {
     const rotation = this.body.rotation();
     return new THREE.Quaternion(rotation.x, rotation.y, rotation.z, rotation.w);
+  }
+
+  applyMassProperties() {
+    this.body.setAdditionalMassProperties(
+      this.config.mass,
+      this.config.centerOfMass,
+      this.config.principalAngularInertia,
+      { x: 0, y: 0, z: 0, w: 1 },
+      true,
+    );
   }
 
   private createBody() {
@@ -358,6 +445,7 @@ export class VehiclePhysics {
       wheel.contactPoint = null;
       wheel.normalLoad = 0;
       wheel.compression = 0;
+      wheel.bumpStopForce = 0;
 
       if (!hit) {
         wheel.suspensionLength = maximumLength;
@@ -384,12 +472,31 @@ export class VehiclePhysics {
         compressionVelocity >= 0 ? this.config.bumpDamping : this.config.reboundDamping;
       const springForce = wheel.compression * this.config.springRate;
       const damperForce = compressionVelocity * damping;
-      const suspensionForce = THREE.MathUtils.clamp(
+      const regularSuspensionForce = THREE.MathUtils.clamp(
         springForce + damperForce,
         0,
         this.config.maxSuspensionForce,
       );
+      const bumpStopCompression = Math.max(
+        0,
+        minimumLength + this.config.bumpStopRange - rawSuspensionLength,
+      );
+      const bumpStopCompressionVelocity =
+        bumpStopCompression > 0 ? Math.max(0, compressionVelocity) : 0;
+      const normalizedBumpStop = bumpStopCompression / Math.max(this.config.bumpStopRange, 0.001);
+      const bumpStopForce = THREE.MathUtils.clamp(
+        this.config.bumpStopRate * bumpStopCompression * (1 + normalizedBumpStop * 0.75) +
+          this.config.bumpStopDamping * bumpStopCompressionVelocity,
+        0,
+        this.config.maxBumpStopForce,
+      );
+      const suspensionForce = THREE.MathUtils.clamp(
+        regularSuspensionForce + bumpStopForce,
+        0,
+        this.config.maxSuspensionForce + this.config.maxBumpStopForce,
+      );
 
+      wheel.bumpStopForce = bumpStopForce;
       wheel.normalLoad = suspensionForce;
       this.body.addForceAtPoint(vectorToRapier(this.up.clone().multiplyScalar(suspensionForce)), hardpoint, true);
     }
@@ -425,6 +532,15 @@ export class VehiclePhysics {
     const shouldReverse = input.brake && this.latestForwardSpeed < 0.25;
     const shouldBrake = input.brake && !shouldReverse;
     const drivenWheelCount = this.config.wheels.filter((wheel) => wheel.isDriven).length;
+    const drivenAngularVelocity =
+      drivenWheelCount > 0
+        ? this.wheels.reduce(
+            (sum, wheel, index) =>
+              sum + (this.config.wheels[index].isDriven ? wheel.angularVelocity : 0),
+            0,
+          ) / drivenWheelCount
+        : 0;
+    this.updateDrivetrain(input, shouldReverse, drivenAngularVelocity, dt);
 
     for (const [index, wheel] of this.wheels.entries()) {
       const config = this.config.wheels[index];
@@ -433,6 +549,9 @@ export class VehiclePhysics {
       wheel.lateralForce = 0;
       wheel.slipAngle = 0;
       wheel.longitudinalSlip = 0;
+      wheel.driveTorque = 0;
+      wheel.brakeTorque = 0;
+      wheel.tractionUsage = 0;
 
       if (!wheel.contact || !wheel.contactPoint || wheel.normalLoad <= 0) {
         wheel.angularVelocity *= Math.exp(-dt * 0.8);
@@ -460,16 +579,61 @@ export class VehiclePhysics {
         2.5,
       );
 
-      let longitudinalForce = THREE.MathUtils.clamp(
+      const longitudinalDemand = signedTireCurve(
+        wheel.longitudinalSlip,
+        this.config.longitudinalPeakSlip,
+        this.config.longitudinalSlideSlip,
+        this.config.longitudinalSlideGrip,
+      );
+      const longitudinalLinear = THREE.MathUtils.clamp(
         wheel.longitudinalSlip * this.config.longitudinalStiffness,
         -1,
         1,
-      ) * maxForce;
-      let lateralForce = THREE.MathUtils.clamp(
-        -wheel.slipAngle * corneringStiffness + wheel.camber * this.config.camberStiffness,
+      );
+      let longitudinalForce =
+        keepSmallerMagnitude(longitudinalDemand, longitudinalLinear) * maxForce;
+
+      const camberSlipBias = wheel.camber * this.config.camberStiffness;
+      const lateralDemand = signedTireCurve(
+        -wheel.slipAngle + camberSlipBias,
+        this.config.lateralPeakSlipAngle,
+        this.config.lateralSlideSlipAngle,
+        this.config.lateralSlideGrip,
+      );
+      const lateralLinear = THREE.MathUtils.clamp(
+        -wheel.slipAngle * corneringStiffness + camberSlipBias,
         -1,
         1,
-      ) * maxForce;
+      );
+      let lateralForce = keepSmallerMagnitude(lateralDemand, lateralLinear) * maxForce;
+
+      const driveSlip = config.isDriven
+        ? THREE.MathUtils.clamp(
+            (Math.abs(wheel.longitudinalSlip) - this.config.longitudinalPeakSlip) /
+              Math.max(
+                this.config.longitudinalSlideSlip - this.config.longitudinalPeakSlip,
+                0.001,
+              ),
+            0,
+            1,
+          )
+        : 0;
+      const lateralPowerLoss =
+        config.isDriven && input.throttle
+          ? 1 - this.config.rearPowerOversteer * driveSlip
+          : 1;
+      const longitudinalUsage = Math.abs(longitudinalForce) / Math.max(maxForce, 1);
+      const lateralLimit =
+        maxForce *
+        lateralPowerLoss *
+        Math.sqrt(
+          Math.max(
+            0,
+            1 -
+              Math.min(longitudinalUsage * this.config.tireForceCoupling, 1) ** 2,
+          ),
+        );
+      lateralForce = THREE.MathUtils.clamp(lateralForce, -lateralLimit, lateralLimit);
 
       const combinedMagnitude = Math.hypot(longitudinalForce, lateralForce);
       if (combinedMagnitude > maxForce && combinedMagnitude > 0) {
@@ -480,6 +644,11 @@ export class VehiclePhysics {
 
       wheel.longitudinalForce = longitudinalForce;
       wheel.lateralForce = lateralForce;
+      wheel.tractionUsage = THREE.MathUtils.clamp(
+        Math.hypot(longitudinalForce, lateralForce) / Math.max(maxForce, 1),
+        0,
+        2,
+      );
 
       const tireForce = axes.forward
         .clone()
@@ -488,12 +657,19 @@ export class VehiclePhysics {
       this.body.addForceAtPoint(vectorToRapier(tireForce), wheel.contactPoint, true);
 
       const driveTorque = config.isDriven
-        ? ((input.throttle ? this.config.engineTorque : 0) -
-            (shouldReverse ? this.config.reverseTorque : 0)) / drivenWheelCount
+        ? this.computeDriveTorque(
+            input,
+            shouldReverse,
+            wheel,
+            drivenAngularVelocity,
+            drivenWheelCount,
+          )
         : 0;
       const brakeTorque = this.computeBrakeTorque(config, shouldBrake, input.handbrake);
       const tireTorque = -longitudinalForce * this.config.wheelRadius;
       const rollingTorque = -wheel.angularVelocity * this.config.rollingResistance;
+      wheel.driveTorque = driveTorque;
+      wheel.brakeTorque = brakeTorque;
 
       wheel.angularVelocity +=
         ((driveTorque + tireTorque + rollingTorque) / this.config.wheelInertia) *
@@ -508,6 +684,113 @@ export class VehiclePhysics {
         wheel.angularVelocity = 0;
       }
     }
+  }
+
+  private updateDrivetrain(
+    input: InputState,
+    shouldReverse: boolean,
+    drivenAngularVelocity: number,
+    dt: number,
+  ) {
+    const wheelRpm = Math.abs(radPerSecondToRpm(drivenAngularVelocity));
+    if (shouldReverse) {
+      this.gearDisplay = -1;
+      const reverseRpm =
+        wheelRpm * this.config.reverseGearRatio * this.config.finalDriveRatio;
+      this.engineRpm = this.smoothEngineRpm(reverseRpm, dt);
+      return;
+    }
+
+    this.gearDisplay = this.currentGearIndex + 1;
+    let ratio = this.getCurrentGearRatio();
+    let connectedRpm = wheelRpm * ratio * this.config.finalDriveRatio;
+    if (
+      input.throttle &&
+      this.currentGearIndex < this.config.gearRatios.length - 1 &&
+      connectedRpm > this.config.shiftUpRpm
+    ) {
+      this.currentGearIndex += 1;
+      this.gearDisplay = this.currentGearIndex + 1;
+      ratio = this.getCurrentGearRatio();
+      connectedRpm = wheelRpm * ratio * this.config.finalDriveRatio;
+    } else if (
+      this.currentGearIndex > 0 &&
+      connectedRpm < this.config.shiftDownRpm
+    ) {
+      this.currentGearIndex -= 1;
+      this.gearDisplay = this.currentGearIndex + 1;
+      ratio = this.getCurrentGearRatio();
+      connectedRpm = wheelRpm * ratio * this.config.finalDriveRatio;
+    }
+
+    this.engineRpm = this.smoothEngineRpm(connectedRpm, dt);
+  }
+
+  private smoothEngineRpm(connectedRpm: number, dt: number) {
+    const targetRpm = THREE.MathUtils.clamp(
+      Math.max(this.config.idleRpm, connectedRpm),
+      this.config.idleRpm,
+      this.config.redlineRpm + 450,
+    );
+    const response = 1 - Math.exp(-dt * 16);
+    return THREE.MathUtils.lerp(this.engineRpm, targetRpm, response);
+  }
+
+  private computeDriveTorque(
+    input: InputState,
+    shouldReverse: boolean,
+    wheel: WheelRuntime,
+    drivenAngularVelocity: number,
+    drivenWheelCount: number,
+  ) {
+    const differentialTorque =
+      (drivenAngularVelocity - wheel.angularVelocity) *
+      this.config.differentialLock *
+      this.config.wheelInertia *
+      20;
+
+    if (shouldReverse) {
+      const reverseWheelTorque =
+        -this.config.reverseTorque *
+        this.config.reverseGearRatio *
+        this.config.finalDriveRatio *
+        this.config.drivetrainEfficiency;
+      return reverseWheelTorque / drivenWheelCount + differentialTorque;
+    }
+
+    const gearTorqueMultiplier =
+      this.getCurrentGearRatio() *
+      this.config.finalDriveRatio *
+      this.config.drivetrainEfficiency;
+
+    if (!input.throttle) {
+      const brakingDirection = Math.sign(wheel.angularVelocity);
+      return (
+        -brakingDirection *
+          this.config.engineBrakingTorque *
+          gearTorqueMultiplier /
+          drivenWheelCount +
+        differentialTorque
+      );
+    }
+
+    const limiter =
+      this.engineRpm <= this.config.redlineRpm
+        ? 1
+        : THREE.MathUtils.clamp(
+            1 - (this.engineRpm - this.config.redlineRpm) / 450,
+            0,
+            1,
+          );
+    const crankTorque =
+      this.config.engineTorque * engineTorqueCurve(this.engineRpm, this.config) * limiter;
+    return (crankTorque * gearTorqueMultiplier) / drivenWheelCount + differentialTorque;
+  }
+
+  private getCurrentGearRatio() {
+    return this.config.gearRatios[
+      THREE.MathUtils.clamp(this.currentGearIndex, 0, this.config.gearRatios.length - 1)
+    ];
   }
 
   private applyBrakeToAngularVelocity(angularVelocity: number, brakeTorque: number, dt: number) {
@@ -585,6 +868,60 @@ export class VehiclePhysics {
 
 function rayPointAt(origin: THREE.Vector3, direction: THREE.Vector3, distance: number) {
   return origin.clone().add(direction.clone().multiplyScalar(distance));
+}
+
+function signedTireCurve(
+  value: number,
+  peakValue: number,
+  slideValue: number,
+  slideGrip: number,
+) {
+  if (value === 0) {
+    return 0;
+  }
+
+  const sign = Math.sign(value);
+  const magnitude = Math.abs(value);
+  const peak = Math.max(peakValue, 0.001);
+  const slide = Math.max(slideValue, peak + 0.001);
+
+  if (magnitude <= peak) {
+    return sign * smootherStep(magnitude / peak);
+  }
+
+  const slideT = THREE.MathUtils.clamp((magnitude - peak) / (slide - peak), 0, 1);
+  return sign * THREE.MathUtils.lerp(1, slideGrip, smootherStep(slideT));
+}
+
+function keepSmallerMagnitude(curveValue: number, linearValue: number) {
+  return Math.sign(curveValue) * Math.min(Math.abs(curveValue), Math.abs(linearValue));
+}
+
+function smootherStep(value: number) {
+  const t = THREE.MathUtils.clamp(value, 0, 1);
+  return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+function radPerSecondToRpm(value: number) {
+  return (value * 60) / (Math.PI * 2);
+}
+
+function engineTorqueCurve(rpm: number, config: VehicleConfig) {
+  const normalized = THREE.MathUtils.clamp(
+    (rpm - config.idleRpm) / Math.max(config.redlineRpm - config.idleRpm, 1),
+    0,
+    1,
+  );
+
+  if (normalized < 0.28) {
+    return THREE.MathUtils.lerp(0.68, 0.98, smootherStep(normalized / 0.28));
+  }
+
+  if (normalized < 0.72) {
+    return THREE.MathUtils.lerp(0.98, 1.08, smootherStep((normalized - 0.28) / 0.44));
+  }
+
+  return THREE.MathUtils.lerp(1.08, 0.72, smootherStep((normalized - 0.72) / 0.28));
 }
 
 function vectorToRapier(vector: THREE.Vector3) {

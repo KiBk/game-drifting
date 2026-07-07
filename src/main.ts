@@ -20,14 +20,34 @@ type WheelVisual = {
   strut: THREE.Mesh;
 };
 
+type TuningControl = {
+  label: string;
+  unit?: string;
+  min: number;
+  max: number;
+  step: number;
+  precision?: number;
+  get: () => number;
+  set: (value: number) => void;
+  afterChange?: () => void;
+};
+
+type TuningSection = {
+  title: string;
+  controls: TuningControl[];
+};
+
+const SHOW_TUNING_PANEL = false;
 const MAX_FRAME_DELTA = 0.1;
 const KEY_TAP_HOLD_MS = 90;
 
-const app = document.querySelector<HTMLDivElement>("#app");
+const appElement = document.querySelector<HTMLDivElement>("#app");
 
-if (!app) {
+if (!appElement) {
   throw new Error("Missing #app root element.");
 }
+
+const app = appElement;
 
 const loading = document.createElement("div");
 loading.className = "loading";
@@ -41,6 +61,17 @@ hud.innerHTML = `
   <div class="hud__row">
     <span class="hud__label">Speed</span>
     <span class="hud__value" data-speed>0 km/h</span>
+  </div>
+  <div class="hud__row">
+    <span class="hud__label">Gear</span>
+    <span class="hud__value" data-gear>1</span>
+  </div>
+  <div class="hud__row">
+    <span class="hud__label">RPM</span>
+    <span class="hud__value" data-rpm>850</span>
+  </div>
+  <div class="hud__tach" aria-hidden="true">
+    <span class="hud__tach-fill" data-tach-fill></span>
   </div>
   <div class="hud__row">
     <span class="hud__label">Slip</span>
@@ -57,6 +88,9 @@ hud.innerHTML = `
 app.append(hud);
 
 const speedValue = hud.querySelector<HTMLElement>("[data-speed]");
+const gearValue = hud.querySelector<HTMLElement>("[data-gear]");
+const rpmValue = hud.querySelector<HTMLElement>("[data-rpm]");
+const tachFill = hud.querySelector<HTMLElement>("[data-tach-fill]");
 const slipValue = hud.querySelector<HTMLElement>("[data-slip]");
 const devStatusValue = createDevStatusElement(app);
 let devAutodriveStage = "off";
@@ -147,6 +181,10 @@ class VehicleController {
 
   getTelemetry() {
     return this.telemetry;
+  }
+
+  applyMassProperties() {
+    this.physics.applyMassProperties();
   }
 
   private createVisuals() {
@@ -401,6 +439,9 @@ async function start() {
   await initRapier();
   const world = createDrivingWorld();
   const vehicle = new VehicleController(world, defaultVehicleConfig);
+  if (SHOW_TUNING_PANEL) {
+    app.append(createTuningPanel(defaultVehicleConfig, () => vehicle.applyMassProperties()));
+  }
   bindInput(inputState);
   startDevAutodrive();
   loading.classList.add("loading--hidden");
@@ -426,6 +467,21 @@ async function start() {
     if (speedValue) {
       speedValue.textContent = `${Math.round(telemetry.speedKmh)} km/h`;
     }
+    if (gearValue) {
+      gearValue.textContent = telemetry.gear < 0 ? "R" : String(telemetry.gear);
+    }
+    if (rpmValue) {
+      rpmValue.textContent = String(Math.round(telemetry.engineRpm));
+    }
+    if (tachFill) {
+      const rpmRatio = THREE.MathUtils.clamp(
+        (telemetry.engineRpm - defaultVehicleConfig.idleRpm) /
+          (defaultVehicleConfig.redlineRpm - defaultVehicleConfig.idleRpm),
+        0,
+        1,
+      );
+      tachFill.style.transform = `scaleX(${rpmRatio.toFixed(3)})`;
+    }
     if (slipValue) {
       slipValue.textContent = `${telemetry.slipPercent}%`;
     }
@@ -440,12 +496,26 @@ async function start() {
         },
         speed: Math.round(telemetry.speedKmh),
         signedSpeed: Math.round(telemetry.signedSpeedKmh),
+        rpm: Math.round(telemetry.engineRpm),
+        gear: telemetry.gear,
         heading: Number(telemetry.headingDegrees.toFixed(1)),
         steering: Number(telemetry.steeringDegrees.toFixed(1)),
         pitch: Number(telemetry.pitchDegrees.toFixed(1)),
         roll: Number(telemetry.rollDegrees.toFixed(1)),
         suspension: telemetry.wheels.map((wheel) => Number(wheel.suspensionLength.toFixed(2))),
         loads: telemetry.wheels.map((wheel) => Math.round(wheel.normalLoad)),
+        tuning: {
+          mass: defaultVehicleConfig.mass,
+          engineTorque: defaultVehicleConfig.engineTorque,
+          gearRatios: defaultVehicleConfig.gearRatios,
+          finalDriveRatio: defaultVehicleConfig.finalDriveRatio,
+          differentialLock: defaultVehicleConfig.differentialLock,
+          springRate: defaultVehicleConfig.springRate,
+          bumpDamping: defaultVehicleConfig.bumpDamping,
+          reboundDamping: defaultVehicleConfig.reboundDamping,
+          bumpStopRate: defaultVehicleConfig.bumpStopRate,
+          rearPowerOversteer: defaultVehicleConfig.rearPowerOversteer,
+        },
         stage: devAutodriveStage,
       });
     }
@@ -455,6 +525,396 @@ async function start() {
   };
 
   requestAnimationFrame(frame);
+}
+
+function createTuningPanel(config: VehicleConfig, applyMassProperties: () => void) {
+  const panel = document.createElement("aside");
+  panel.className = "tuning-panel";
+  const sections = createTuningSections(config, applyMassProperties);
+  const controls = sections.flatMap((section) => section.controls);
+  const initialValues = new Map(controls.map((control) => [control, control.get()]));
+
+  const header = document.createElement("div");
+  header.className = "tuning-panel__header";
+  const title = document.createElement("h2");
+  title.className = "tuning-panel__title";
+  title.textContent = "Vehicle Tuning";
+  const resetButton = document.createElement("button");
+  resetButton.className = "tuning-panel__reset";
+  resetButton.type = "button";
+  resetButton.textContent = "Reset";
+  resetButton.addEventListener("click", () => {
+    for (const control of controls) {
+      const initialValue = initialValues.get(control);
+      if (initialValue === undefined) {
+        continue;
+      }
+      control.set(initialValue);
+      control.afterChange?.();
+    }
+    refreshControls();
+  });
+  header.append(title, resetButton);
+  panel.append(header);
+
+  const controlRows: { control: TuningControl; range: HTMLInputElement; number: HTMLInputElement }[] = [];
+  for (const [sectionIndex, section] of sections.entries()) {
+    const group = document.createElement("details");
+    group.className = "tuning-panel__section";
+    group.open = sectionIndex < 3;
+    const summary = document.createElement("summary");
+    summary.className = "tuning-panel__summary";
+    summary.textContent = section.title;
+    group.append(summary);
+
+    for (const control of section.controls) {
+      const row = createTuningControlRow(control);
+      controlRows.push({ control, range: row.range, number: row.number });
+      group.append(row.element);
+    }
+    panel.append(group);
+  }
+
+  function refreshControls() {
+    for (const { control, range, number } of controlRows) {
+      const value = control.get();
+      range.value = String(value);
+      number.value = formatTuningValue(value, control);
+    }
+  }
+
+  refreshControls();
+  return panel;
+}
+
+function createTuningSections(
+  config: VehicleConfig,
+  applyMassProperties: () => void,
+): TuningSection[] {
+  const degrees = (getRadians: () => number, setRadians: (value: number) => void) => ({
+    get: () => THREE.MathUtils.radToDeg(getRadians()),
+    set: (degreesValue: number) => setRadians(THREE.MathUtils.degToRad(degreesValue)),
+  });
+  const massChange = { afterChange: applyMassProperties };
+
+  return [
+    {
+      title: "Body",
+      controls: [
+        numericControl("Mass", "kg", 900, 3_200, 25, () => config.mass, (value) => {
+          config.mass = value;
+        }, massChange),
+        numericControl("COM X", "m", -0.5, 0.5, 0.01, () => config.centerOfMass.x, (value) => {
+          config.centerOfMass.x = value;
+        }, massChange),
+        numericControl("COM Y", "m", -0.65, 0.15, 0.01, () => config.centerOfMass.y, (value) => {
+          config.centerOfMass.y = value;
+        }, massChange),
+        numericControl("COM Z", "m", -0.8, 0.8, 0.01, () => config.centerOfMass.z, (value) => {
+          config.centerOfMass.z = value;
+        }, massChange),
+        numericControl("Pitch inertia", "", 200, 2_500, 10, () => config.principalAngularInertia.x, (value) => {
+          config.principalAngularInertia.x = value;
+        }, massChange),
+        numericControl("Yaw inertia", "", 300, 4_000, 10, () => config.principalAngularInertia.y, (value) => {
+          config.principalAngularInertia.y = value;
+        }, massChange),
+        numericControl("Roll inertia", "", 150, 2_500, 10, () => config.principalAngularInertia.z, (value) => {
+          config.principalAngularInertia.z = value;
+        }, massChange),
+      ],
+    },
+    {
+      title: "Power / Brakes",
+      controls: [
+        numericControl("Engine torque", "Nm", 250, 3_800, 10, () => config.engineTorque, (value) => {
+          config.engineTorque = value;
+        }),
+        numericControl("Reverse torque", "Nm", 150, 2_600, 10, () => config.reverseTorque, (value) => {
+          config.reverseTorque = value;
+        }),
+        numericControl("Diff lock", "", 0, 1, 0.01, () => config.differentialLock, (value) => {
+          config.differentialLock = value;
+        }),
+        numericControl("Brake torque", "Nm", 300, 5_500, 10, () => config.brakeTorque, (value) => {
+          config.brakeTorque = value;
+        }),
+        numericControl("Handbrake torque", "Nm", 300, 7_000, 10, () => config.handbrakeTorque, (value) => {
+          config.handbrakeTorque = value;
+        }),
+        numericControl("Brake bias", "", 0.45, 0.9, 0.01, () => config.brakeBias, (value) => {
+          config.brakeBias = value;
+        }),
+        numericControl("Wheel inertia", "", 0.4, 5, 0.05, () => config.wheelInertia, (value) => {
+          config.wheelInertia = value;
+        }),
+        numericControl("Rolling resistance", "", 0, 0.5, 0.01, () => config.rollingResistance, (value) => {
+          config.rollingResistance = value;
+        }),
+      ],
+    },
+    {
+      title: "Suspension",
+      controls: [
+        numericControl("Rest length", "m", 0.25, 0.9, 0.01, () => config.suspensionRestLength, (value) => {
+          config.suspensionRestLength = value;
+        }),
+        numericControl("Bump travel", "m", 0.08, 0.45, 0.01, () => config.suspensionBumpTravel, (value) => {
+          config.suspensionBumpTravel = value;
+        }),
+        numericControl("Droop travel", "m", 0.08, 0.55, 0.01, () => config.suspensionDroopTravel, (value) => {
+          config.suspensionDroopTravel = value;
+        }),
+        numericControl("Spring rate", "N/m", 20_000, 130_000, 500, () => config.springRate, (value) => {
+          config.springRate = value;
+        }),
+        numericControl("Bump damping", "N*s/m", 500, 18_000, 100, () => config.bumpDamping, (value) => {
+          config.bumpDamping = value;
+        }),
+        numericControl("Rebound damping", "N*s/m", 500, 22_000, 100, () => config.reboundDamping, (value) => {
+          config.reboundDamping = value;
+        }),
+        numericControl("Max susp force", "N", 5_000, 40_000, 500, () => config.maxSuspensionForce, (value) => {
+          config.maxSuspensionForce = value;
+        }),
+        numericControl("Bump stop range", "m", 0.01, 0.22, 0.01, () => config.bumpStopRange, (value) => {
+          config.bumpStopRange = value;
+        }),
+        numericControl("Bump stop rate", "N/m", 20_000, 400_000, 1_000, () => config.bumpStopRate, (value) => {
+          config.bumpStopRate = value;
+        }),
+        numericControl("Bump stop damp", "N*s/m", 0, 35_000, 250, () => config.bumpStopDamping, (value) => {
+          config.bumpStopDamping = value;
+        }),
+        numericControl("Max bump force", "N", 5_000, 80_000, 500, () => config.maxBumpStopForce, (value) => {
+          config.maxBumpStopForce = value;
+        }),
+        numericControl("Front anti-roll", "N/m", 0, 22_000, 250, () => config.frontAntiRoll, (value) => {
+          config.frontAntiRoll = value;
+        }),
+        numericControl("Rear anti-roll", "N/m", 0, 22_000, 250, () => config.rearAntiRoll, (value) => {
+          config.rearAntiRoll = value;
+        }),
+      ],
+    },
+    {
+      title: "Tires / Steering",
+      controls: [
+        numericControl("Friction", "", 0.45, 1.8, 0.01, () => config.frictionCoefficient, (value) => {
+          config.frictionCoefficient = value;
+        }),
+        numericControl("Handbrake friction", "", 0.2, 1.3, 0.01, () => config.handbrakeFrictionCoefficient, (value) => {
+          config.handbrakeFrictionCoefficient = value;
+        }),
+        numericControl("Load sensitivity", "", 0, 0.45, 0.01, () => config.loadSensitivity, (value) => {
+          config.loadSensitivity = value;
+        }),
+        numericControl("Corner stiffness", "", 0.8, 10, 0.1, () => config.corneringStiffness, (value) => {
+          config.corneringStiffness = value;
+        }),
+        numericControl("HB corner stiff", "", 0.2, 5, 0.1, () => config.handbrakeCorneringStiffness, (value) => {
+          config.handbrakeCorneringStiffness = value;
+        }),
+        numericControl("Long stiffness", "", 1, 16, 0.1, () => config.longitudinalStiffness, (value) => {
+          config.longitudinalStiffness = value;
+        }),
+        numericControl("Long peak slip", "", 0.03, 0.4, 0.01, () => config.longitudinalPeakSlip, (value) => {
+          config.longitudinalPeakSlip = value;
+        }),
+        numericControl("Long slide slip", "", 0.2, 2, 0.01, () => config.longitudinalSlideSlip, (value) => {
+          config.longitudinalSlideSlip = value;
+        }),
+        numericControl("Long slide grip", "", 0.2, 1, 0.01, () => config.longitudinalSlideGrip, (value) => {
+          config.longitudinalSlideGrip = value;
+        }),
+        numericControl("Lat peak angle", "deg", 2, 20, 0.5, degrees(
+          () => config.lateralPeakSlipAngle,
+          (value) => {
+            config.lateralPeakSlipAngle = value;
+          },
+        ).get, degrees(
+          () => config.lateralPeakSlipAngle,
+          (value) => {
+            config.lateralPeakSlipAngle = value;
+          },
+        ).set),
+        numericControl("Lat slide angle", "deg", 8, 55, 0.5, degrees(
+          () => config.lateralSlideSlipAngle,
+          (value) => {
+            config.lateralSlideSlipAngle = value;
+          },
+        ).get, degrees(
+          () => config.lateralSlideSlipAngle,
+          (value) => {
+            config.lateralSlideSlipAngle = value;
+          },
+        ).set),
+        numericControl("Lat slide grip", "", 0.2, 1, 0.01, () => config.lateralSlideGrip, (value) => {
+          config.lateralSlideGrip = value;
+        }),
+        numericControl("Force coupling", "", 0.2, 1.2, 0.01, () => config.tireForceCoupling, (value) => {
+          config.tireForceCoupling = value;
+        }),
+        numericControl("Power oversteer", "", 0, 1, 0.01, () => config.rearPowerOversteer, (value) => {
+          config.rearPowerOversteer = value;
+        }),
+        numericControl("Max steer", "deg", 8, 55, 1, degrees(
+          () => config.maxSteerAngle,
+          (value) => {
+            config.maxSteerAngle = value;
+          },
+        ).get, degrees(
+          () => config.maxSteerAngle,
+          (value) => {
+            config.maxSteerAngle = value;
+          },
+        ).set),
+        numericControl("Ackermann", "", 0, 0.7, 0.01, () => config.ackermann, (value) => {
+          config.ackermann = value;
+        }),
+        numericControl("Camber droop", "deg", -5, 5, 0.1, degrees(
+          () => config.camberAtDroop,
+          (value) => {
+            config.camberAtDroop = value;
+          },
+        ).get, degrees(
+          () => config.camberAtDroop,
+          (value) => {
+            config.camberAtDroop = value;
+          },
+        ).set),
+        numericControl("Camber rest", "deg", -5, 5, 0.1, degrees(
+          () => config.camberAtRest,
+          (value) => {
+            config.camberAtRest = value;
+          },
+        ).get, degrees(
+          () => config.camberAtRest,
+          (value) => {
+            config.camberAtRest = value;
+          },
+        ).set),
+        numericControl("Camber bump", "deg", -6, 3, 0.1, degrees(
+          () => config.camberAtBump,
+          (value) => {
+            config.camberAtBump = value;
+          },
+        ).get, degrees(
+          () => config.camberAtBump,
+          (value) => {
+            config.camberAtBump = value;
+          },
+        ).set),
+        numericControl("Camber thrust", "", 0, 0.4, 0.01, () => config.camberStiffness, (value) => {
+          config.camberStiffness = value;
+        }),
+      ],
+    },
+  ];
+}
+
+function numericControl(
+  label: string,
+  unit: string,
+  min: number,
+  max: number,
+  step: number,
+  get: () => number,
+  set: (value: number) => void,
+  options: Pick<TuningControl, "afterChange" | "precision"> = {},
+): TuningControl {
+  return {
+    label,
+    unit,
+    min,
+    max,
+    step,
+    get,
+    set,
+    precision: options.precision,
+    afterChange: options.afterChange,
+  };
+}
+
+function createTuningControlRow(control: TuningControl) {
+  const row = document.createElement("label");
+  row.className = "tuning-control";
+  row.dataset.tuningControl = control.label;
+
+  const text = document.createElement("span");
+  text.className = "tuning-control__label";
+  text.textContent = control.label;
+
+  const valueWrap = document.createElement("span");
+  valueWrap.className = "tuning-control__value-wrap";
+
+  const range = document.createElement("input");
+  range.className = "tuning-control__range";
+  range.type = "range";
+  range.min = String(control.min);
+  range.max = String(control.max);
+  range.step = String(control.step);
+
+  const number = document.createElement("input");
+  number.className = "tuning-control__number";
+  number.type = "number";
+  number.min = String(control.min);
+  number.max = String(control.max);
+  number.step = String(control.step);
+
+  const unit = document.createElement("span");
+  unit.className = "tuning-control__unit";
+  unit.textContent = control.unit ?? "";
+
+  valueWrap.append(number, unit);
+  row.append(text, valueWrap, range);
+
+  const updateValue = (rawValue: string) => {
+    const numericValue = Number(rawValue);
+    if (!Number.isFinite(numericValue)) {
+      return;
+    }
+    const value = THREE.MathUtils.clamp(numericValue, control.min, control.max);
+    control.set(value);
+    control.afterChange?.();
+    range.value = String(value);
+    number.value = formatTuningValue(value, control);
+  };
+  const updateLiveNumberValue = () => {
+    const numericValue = Number(number.value);
+    if (
+      !Number.isFinite(numericValue) ||
+      numericValue < control.min ||
+      numericValue > control.max
+    ) {
+      return;
+    }
+    control.set(numericValue);
+    control.afterChange?.();
+    range.value = String(numericValue);
+  };
+
+  range.addEventListener("input", () => updateValue(range.value));
+  number.addEventListener("input", updateLiveNumberValue);
+  number.addEventListener("change", () => updateValue(number.value));
+  number.addEventListener("blur", () => {
+    number.value = formatTuningValue(control.get(), control);
+  });
+
+  return { element: row, range, number };
+}
+
+function formatTuningValue(value: number, control: TuningControl) {
+  if (control.precision !== undefined) {
+    return value.toFixed(control.precision);
+  }
+
+  if (control.step >= 1) {
+    return String(Math.round(value));
+  }
+
+  const decimals = Math.max(0, Math.ceil(Math.abs(Math.log10(control.step))));
+  return value.toFixed(decimals);
 }
 
 function startDevAutodrive() {
