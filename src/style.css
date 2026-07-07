@@ -1,0 +1,125 @@
+:root {
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  color: #eef4f8;
+  background: #111417;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  min-width: 320px;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.hud {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 1;
+  width: min(300px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 8px;
+  background: rgb(17 20 23 / 72%);
+  backdrop-filter: blur(10px);
+  color: #eef4f8;
+  box-shadow: 0 10px 28px rgb(0 0 0 / 20%);
+}
+
+.hud__title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.hud__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 22px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.hud__label {
+  color: #b9c6cd;
+}
+
+.hud__value {
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
+}
+
+.hud__keys {
+  display: grid;
+  grid-template-columns: repeat(3, 30px);
+  gap: 4px;
+  margin-top: 10px;
+  align-items: center;
+}
+
+.hud__key {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 24px;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 5px;
+  color: #dbe5ea;
+  background: rgb(255 255 255 / 8%);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.hud__key--up {
+  grid-column: 2;
+}
+
+.hud__key--left {
+  grid-column: 1;
+}
+
+.hud__key--down {
+  grid-column: 2;
+}
+
+.hud__key--right {
+  grid-column: 3;
+}
+
+.loading {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #111417;
+  color: #eef4f8;
+  font-size: 14px;
+}
+
+.loading--hidden {
+  display: none;
+}
