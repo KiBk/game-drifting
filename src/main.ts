@@ -17,6 +17,14 @@ type WheelVisual = {
   strut: THREE.Mesh;
 };
 
+type RearLightVisual = {
+  material: THREE.MeshStandardMaterial;
+  light: THREE.PointLight;
+  activeColor: THREE.Color;
+  inactiveColor: THREE.Color;
+  activeIntensity: number;
+};
+
 type WheelEffectSample = {
   contact: boolean;
   position: THREE.Vector3;
@@ -159,6 +167,9 @@ class VehicleController {
   private readonly group = new THREE.Group();
   private readonly physics: JoltVehiclePhysics;
   private readonly wheelVisuals: WheelVisual[] = [];
+  private readonly brakeLights: RearLightVisual[] = [];
+  private readonly reverseLights: RearLightVisual[] = [];
+  private inputState: InputState = { ...inputState };
   private telemetry: JoltVehicleTelemetry;
 
   constructor(
@@ -172,6 +183,7 @@ class VehicleController {
   }
 
   updateInput(input: InputState) {
+    this.inputState = { ...input };
     this.physics.updateInput(input);
   }
 
@@ -180,6 +192,7 @@ class VehicleController {
     this.group.quaternion.copy(this.physics.getQuaternion());
     this.syncWheelVisuals();
     this.telemetry = this.physics.getTelemetry();
+    this.syncLightVisuals();
   }
 
   getPosition() {
@@ -252,6 +265,8 @@ class VehicleController {
     cabin.castShadow = true;
     this.group.add(cabin);
 
+    this.createRearLights();
+
     const strutMaterial = new THREE.MeshStandardMaterial({
       color: 0x20272b,
       roughness: 0.72,
@@ -275,6 +290,99 @@ class VehicleController {
       if (hardpoint) {
         orientStrut(visual.strut, hardpoint, transform.position);
       }
+    }
+  }
+
+  private createRearLights() {
+    for (const x of [-0.62, 0.62]) {
+      this.brakeLights.push(
+        this.createRearLight({
+          x,
+          y: 0.12,
+          z: -1.72,
+          width: 0.34,
+          height: 0.14,
+          activeColor: 0xff1f17,
+          inactiveColor: 0x3a0806,
+          activeIntensity: 1.9,
+        }),
+      );
+    }
+
+    for (const x of [-0.24, 0.24]) {
+      this.reverseLights.push(
+        this.createRearLight({
+          x,
+          y: 0.11,
+          z: -1.725,
+          width: 0.18,
+          height: 0.12,
+          activeColor: 0xf6fbff,
+          inactiveColor: 0x2f3437,
+          activeIntensity: 1.35,
+        }),
+      );
+    }
+  }
+
+  private createRearLight({
+    x,
+    y,
+    z,
+    width,
+    height,
+    activeColor,
+    inactiveColor,
+    activeIntensity,
+  }: {
+    x: number;
+    y: number;
+    z: number;
+    width: number;
+    height: number;
+    activeColor: number;
+    inactiveColor: number;
+    activeIntensity: number;
+  }) {
+    const active = new THREE.Color(activeColor);
+    const inactive = new THREE.Color(inactiveColor);
+    const material = new THREE.MeshStandardMaterial({
+      color: inactive,
+      emissive: active,
+      emissiveIntensity: 0.05,
+      roughness: 0.28,
+      metalness: 0,
+    });
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, 0.045), material);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = false;
+    this.group.add(mesh);
+
+    const light = new THREE.PointLight(active, 0, 5);
+    light.position.set(x, y, z - 0.12);
+    this.group.add(light);
+
+    return {
+      material,
+      light,
+      activeColor: active,
+      inactiveColor: inactive,
+      activeIntensity,
+    };
+  }
+
+  private syncLightVisuals() {
+    const brakeActive = this.inputState.brake && this.telemetry.signedSpeedKmh > -2;
+    const reverseActive = this.telemetry.gear < 0;
+    this.setLightState(this.brakeLights, brakeActive);
+    this.setLightState(this.reverseLights, reverseActive);
+  }
+
+  private setLightState(lights: RearLightVisual[], active: boolean) {
+    for (const light of lights) {
+      light.material.color.copy(active ? light.activeColor : light.inactiveColor);
+      light.material.emissiveIntensity = active ? light.activeIntensity : 0.05;
+      light.light.intensity = active ? light.activeIntensity : 0;
     }
   }
 }
@@ -821,6 +929,11 @@ function updateHud(
       steering: Number(telemetry.steeringDegrees.toFixed(1)),
       pitch: Number(telemetry.pitchDegrees.toFixed(1)),
       roll: Number(telemetry.rollDegrees.toFixed(1)),
+      lights: {
+        brake: inputState.brake && telemetry.signedSpeedKmh > -2,
+        reverse: telemetry.gear < 0,
+      },
+      driven: telemetry.wheels.map((wheel) => wheel.driven),
       suspension: telemetry.wheels.map((wheel) => Number(wheel.suspensionLength.toFixed(2))),
       contact: telemetry.wheels.map((wheel) => wheel.contact),
       slip: telemetry.wheels.map((wheel) => [

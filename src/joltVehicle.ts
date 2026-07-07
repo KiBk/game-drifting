@@ -55,6 +55,7 @@ export type JoltWheelTelemetry = {
   name: JoltWheelConfig["name"];
   isFront: boolean;
   isLeft: boolean;
+  driven: boolean;
   contact: boolean;
   suspensionLength: number;
   angularVelocity: number;
@@ -107,6 +108,8 @@ const NUM_OBJECT_LAYERS = 2;
 const NON_MOVING_BP_LAYER = 0;
 const MOVING_BP_LAYER = 1;
 const NUM_BROAD_PHASE_LAYERS = 2;
+const FL_WHEEL = 0;
+const FR_WHEEL = 1;
 const RL_WHEEL = 2;
 const RR_WHEEL = 3;
 const ZERO_INPUT: InputState = {
@@ -158,7 +161,7 @@ export const defaultJoltVehicleConfig: JoltVehicleConfig = {
       localPosition: new THREE.Vector3(-0.96, -0.08, 1.45),
       isFront: true,
       isLeft: true,
-      driven: false,
+      driven: true,
       handbrake: false,
     },
     {
@@ -166,7 +169,7 @@ export const defaultJoltVehicleConfig: JoltVehicleConfig = {
       localPosition: new THREE.Vector3(0.96, -0.08, 1.45),
       isFront: true,
       isLeft: false,
-      driven: false,
+      driven: true,
       handbrake: false,
     },
     {
@@ -358,6 +361,7 @@ export class JoltVehiclePhysics {
         name: wheelConfig.name,
         isFront: wheelConfig.isFront,
         isLeft: wheelConfig.isLeft,
+        driven: wheelConfig.driven,
         contact: wheel.HasContact(),
         suspensionLength: wheel.GetSuspensionLength(),
         angularVelocity: wheel.GetAngularVelocity(),
@@ -491,17 +495,27 @@ export class JoltVehiclePhysics {
     controllerSettings.mDifferentials.clear();
     controllerSettings.mDifferentialLimitedSlipRatio = this.config.limitedSlipRatio;
 
+    const frontDifferential = new Jolt.VehicleDifferentialSettings();
+    frontDifferential.mLeftWheel = FL_WHEEL;
+    frontDifferential.mRightWheel = FR_WHEEL;
+    frontDifferential.mDifferentialRatio = this.config.finalDriveRatio;
+    frontDifferential.mLeftRightSplit = 0.5;
+    frontDifferential.mLimitedSlipRatio = this.config.limitedSlipRatio;
+    frontDifferential.mEngineTorqueRatio = 0.45;
+    controllerSettings.mDifferentials.push_back(frontDifferential);
+
     const rearDifferential = new Jolt.VehicleDifferentialSettings();
     rearDifferential.mLeftWheel = RL_WHEEL;
     rearDifferential.mRightWheel = RR_WHEEL;
     rearDifferential.mDifferentialRatio = this.config.finalDriveRatio;
     rearDifferential.mLeftRightSplit = 0.5;
     rearDifferential.mLimitedSlipRatio = this.config.limitedSlipRatio;
-    rearDifferential.mEngineTorqueRatio = 1;
+    rearDifferential.mEngineTorqueRatio = 0.55;
     controllerSettings.mDifferentials.push_back(rearDifferential);
     settings.mController = controllerSettings;
 
     this.world.retain(controllerSettings);
+    this.world.retain(frontDifferential);
     this.world.retain(rearDifferential);
     return settings;
   }
