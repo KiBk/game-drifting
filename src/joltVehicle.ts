@@ -42,7 +42,12 @@ export type JoltVehicleConfig = {
   limitedSlipRatio: number;
   brakeTorque: number;
   handbrakeTorque: number;
-  tireFrictionScale: number;
+  frontTireFrictionScale: number;
+  rearTireFrictionScale: number;
+  rearSlipCouplingStart: number;
+  rearSlipCouplingEnd: number;
+  rearLateralGripAtPowerSlip: number;
+  rearLateralGripAtHandbrake: number;
   wheels: JoltWheelConfig[];
 };
 
@@ -82,6 +87,19 @@ type Body = InstanceType<JoltApi["Body"]>;
 type VehicleConstraint = InstanceType<JoltApi["VehicleConstraint"]>;
 type WheeledVehicleController = InstanceType<JoltApi["WheeledVehicleController"]>;
 type VehicleConstraintStepListener = InstanceType<JoltApi["VehicleConstraintStepListener"]>;
+type WheeledVehicleControllerCallbacksJS = InstanceType<
+  JoltApi["WheeledVehicleControllerCallbacksJS"]
+>;
+type TireMaxImpulseCallback = (
+  wheelIndex: number,
+  result: number,
+  suspensionImpulse: number,
+  longitudinalFriction: number,
+  lateralFriction: number,
+  longitudinalSlip: number,
+  lateralSlip: number,
+  deltaTime: number,
+) => void;
 
 const NON_MOVING_LAYER = 0;
 const MOVING_LAYER = 1;
@@ -103,36 +121,41 @@ export const FIXED_TIMESTEP = 1 / 60;
 export const WORLD_SIZE = 480;
 
 // Coordinate convention: chassis front is local +Z, up is local +Y, and
-// vehicle-left is local +X. This matches the Three visual model.
+// local +X is the vehicle's right side in the Three visual model.
 export const defaultJoltVehicleConfig: JoltVehicleConfig = {
-  mass: 3100,
-  chassisStartHeight: 1.55,
+  mass: 3250,
+  chassisStartHeight: 1.9,
   chassisHalfExtents: new THREE.Vector3(0.95, 0.34, 1.65),
-  centerOfMassOffset: new THREE.Vector3(0, -0.42, 0.06),
+  centerOfMassOffset: new THREE.Vector3(0, -0.04, 0.05),
   wheelRadius: 0.38,
   wheelWidth: 0.32,
-  suspensionMinLength: 0.22,
-  suspensionMaxLength: 1.05,
-  springStiffness: 27_000,
-  springDamping: 4_800,
+  suspensionMinLength: 0.16,
+  suspensionMaxLength: 1.48,
+  springStiffness: 10_800,
+  springDamping: 1_150,
   maxSteerAngle: THREE.MathUtils.degToRad(33),
-  maxEngineTorque: 980,
+  maxEngineTorque: 1_040,
   minRpm: 850,
   maxRpm: 6_200,
   shiftUpRpm: 5_350,
   shiftDownRpm: 2_000,
-  clutchStrength: 15,
+  clutchStrength: 16,
   gearRatios: [3.2, 1.78, 1.16],
   reverseGearRatios: [-2.9],
   finalDriveRatio: 3.9,
-  limitedSlipRatio: 1.65,
+  limitedSlipRatio: 1.7,
   brakeTorque: 2_150,
-  handbrakeTorque: 4_800,
-  tireFrictionScale: 1.06,
+  handbrakeTorque: 5_700,
+  frontTireFrictionScale: 1.12,
+  rearTireFrictionScale: 0.92,
+  rearSlipCouplingStart: 0.18,
+  rearSlipCouplingEnd: 1.45,
+  rearLateralGripAtPowerSlip: 0.34,
+  rearLateralGripAtHandbrake: 0.26,
   wheels: [
     {
       name: "frontLeft",
-      localPosition: new THREE.Vector3(0.96, -0.08, 1.45),
+      localPosition: new THREE.Vector3(-0.96, -0.08, 1.45),
       isFront: true,
       isLeft: true,
       driven: false,
@@ -140,7 +163,7 @@ export const defaultJoltVehicleConfig: JoltVehicleConfig = {
     },
     {
       name: "frontRight",
-      localPosition: new THREE.Vector3(-0.96, -0.08, 1.45),
+      localPosition: new THREE.Vector3(0.96, -0.08, 1.45),
       isFront: true,
       isLeft: false,
       driven: false,
@@ -148,7 +171,7 @@ export const defaultJoltVehicleConfig: JoltVehicleConfig = {
     },
     {
       name: "rearLeft",
-      localPosition: new THREE.Vector3(0.96, -0.08, -1.32),
+      localPosition: new THREE.Vector3(-0.96, -0.08, -1.32),
       isFront: false,
       isLeft: true,
       driven: true,
@@ -156,7 +179,7 @@ export const defaultJoltVehicleConfig: JoltVehicleConfig = {
     },
     {
       name: "rearRight",
-      localPosition: new THREE.Vector3(-0.96, -0.08, -1.32),
+      localPosition: new THREE.Vector3(0.96, -0.08, -1.32),
       isFront: false,
       isLeft: false,
       driven: true,
@@ -241,6 +264,8 @@ export class JoltVehiclePhysics {
   private readonly constraint: VehicleConstraint;
   private readonly controller: WheeledVehicleController;
   private readonly stepListener: VehicleConstraintStepListener;
+  private readonly controllerCallbacks: WheeledVehicleControllerCallbacksJS;
+  private currentInput: InputState = ZERO_INPUT;
   private previousForward = 1;
 
   constructor(
@@ -262,12 +287,15 @@ export class JoltVehiclePhysics {
       this.constraint.GetController(),
       world.Jolt.WheeledVehicleController,
     );
+    this.controllerCallbacks = this.createControllerCallbacks();
     world.retain(vehicleSettings);
     world.retain(this.constraint);
     world.retain(this.stepListener);
+    world.retain(this.controllerCallbacks);
   }
 
   updateInput(input: InputState = ZERO_INPUT) {
+    this.currentInput = input;
     const localSpeed = this.getLocalVelocity();
     let forward = input.throttle ? 1 : input.brake ? -1 : 0;
     let brake = 0;
@@ -425,7 +453,7 @@ export class JoltVehiclePhysics {
       wheel.mWidth = this.config.wheelWidth;
       wheel.mSuspensionMinLength = this.config.suspensionMinLength;
       wheel.mSuspensionMaxLength = this.config.suspensionMaxLength;
-      wheel.mSuspensionPreloadLength = 0.12;
+      wheel.mSuspensionPreloadLength = 0.02;
       wheel.mSuspensionSpring.mMode = Jolt.ESpringMode_StiffnessAndDamping;
       wheel.mSuspensionSpring.mStiffness = this.config.springStiffness;
       wheel.mSuspensionSpring.mDamping = this.config.springDamping;
@@ -434,7 +462,7 @@ export class JoltVehiclePhysics {
       wheel.mMaxSteerAngle = wheelConfig.isFront ? this.config.maxSteerAngle : 0;
       wheel.mMaxBrakeTorque = this.config.brakeTorque;
       wheel.mMaxHandBrakeTorque = wheelConfig.handbrake ? this.config.handbrakeTorque : 0;
-      configureTireCurves(wheel, this.config.tireFrictionScale);
+      configureTireCurves(wheel, wheelConfig, this.config);
       settings.mWheels.push_back(wheel);
       this.world.retain(wheel);
     }
@@ -484,6 +512,47 @@ export class JoltVehiclePhysics {
     const inverseRotation = this.getQuaternion().invert();
     return worldVelocity.applyQuaternion(inverseRotation);
   }
+
+  private createControllerCallbacks() {
+    const Jolt = this.world.Jolt;
+    const callbacks = new Jolt.WheeledVehicleControllerCallbacksJS();
+    const callbackTarget = callbacks as WheeledVehicleControllerCallbacksJS & {
+      OnTireMaxImpulseCallback: TireMaxImpulseCallback;
+    };
+
+    callbackTarget.OnTireMaxImpulseCallback = (
+      wheelIndex,
+      resultPointer,
+      suspensionImpulse,
+      longitudinalFriction,
+      lateralFriction,
+      longitudinalSlip,
+    ) => {
+      const result = Jolt.wrapPointer(resultPointer, Jolt.TireMaxImpulseCallbackResult);
+      const isRear = wheelIndex === RL_WHEEL || wheelIndex === RR_WHEEL;
+      const rearPowerSlip = isRear
+        ? smoothStep(
+            this.config.rearSlipCouplingStart,
+            this.config.rearSlipCouplingEnd,
+            Math.abs(longitudinalSlip),
+          )
+        : 0;
+      const rearLateralScale = THREE.MathUtils.lerp(
+        1,
+        this.config.rearLateralGripAtPowerSlip,
+        rearPowerSlip,
+      );
+      const handbrakeScale =
+        isRear && this.currentInput.handbrake ? this.config.rearLateralGripAtHandbrake : 1;
+
+      result.mLongitudinalImpulse = longitudinalFriction * suspensionImpulse;
+      result.mLateralImpulse =
+        lateralFriction * suspensionImpulse * Math.min(rearLateralScale, handbrakeScale);
+    };
+
+    callbacks.SetWheeledVehicleController(this.controller);
+    return callbacks;
+  }
 }
 
 function createGroundBody(world: JoltDrivingWorld) {
@@ -510,21 +579,29 @@ function createGroundBody(world: JoltDrivingWorld) {
   world.retain(body);
 }
 
-function configureTireCurves(wheel: InstanceType<JoltApi["WheelSettingsWV"]>, scale: number) {
+function configureTireCurves(
+  wheel: InstanceType<JoltApi["WheelSettingsWV"]>,
+  wheelConfig: JoltWheelConfig,
+  config: JoltVehicleConfig,
+) {
+  const scale = wheelConfig.isFront ? config.frontTireFrictionScale : config.rearTireFrictionScale;
+  const lateralPeak = wheelConfig.isFront ? 1.12 : 0.82;
+  const lateralSlide = wheelConfig.isFront ? 0.6 : 0.24;
+
   wheel.mLongitudinalFriction.Clear();
-  wheel.mLongitudinalFriction.AddPoint(-1.5, 0.72 * scale);
+  wheel.mLongitudinalFriction.AddPoint(-1.5, 0.58 * scale);
   wheel.mLongitudinalFriction.AddPoint(-0.18, 1.16 * scale);
   wheel.mLongitudinalFriction.AddPoint(0, 1.05 * scale);
   wheel.mLongitudinalFriction.AddPoint(0.18, 1.16 * scale);
-  wheel.mLongitudinalFriction.AddPoint(1.5, 0.72 * scale);
+  wheel.mLongitudinalFriction.AddPoint(1.5, 0.58 * scale);
   wheel.mLongitudinalFriction.Sort();
 
   wheel.mLateralFriction.Clear();
-  wheel.mLateralFriction.AddPoint(-35, 0.58 * scale);
-  wheel.mLateralFriction.AddPoint(-10, 1.08 * scale);
+  wheel.mLateralFriction.AddPoint(-35, lateralSlide * scale);
+  wheel.mLateralFriction.AddPoint(-10, lateralPeak * scale);
   wheel.mLateralFriction.AddPoint(0, 1.0 * scale);
-  wheel.mLateralFriction.AddPoint(10, 1.08 * scale);
-  wheel.mLateralFriction.AddPoint(35, 0.58 * scale);
+  wheel.mLateralFriction.AddPoint(10, lateralPeak * scale);
+  wheel.mLateralFriction.AddPoint(35, lateralSlide * scale);
   wheel.mLateralFriction.Sort();
 }
 
@@ -553,4 +630,9 @@ function toThreeQuaternion(value: InstanceType<JoltApi["Quat"]>) {
 
 function rotationForward(rotation: THREE.Quaternion) {
   return new THREE.Vector3(0, 0, 1).applyQuaternion(rotation).normalize();
+}
+
+function smoothStep(edge0: number, edge1: number, value: number) {
+  const x = THREE.MathUtils.clamp((value - edge0) / Math.max(edge1 - edge0, 0.001), 0, 1);
+  return x * x * (3 - 2 * x);
 }

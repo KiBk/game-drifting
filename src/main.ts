@@ -17,8 +17,42 @@ type WheelVisual = {
   strut: THREE.Mesh;
 };
 
+type WheelEffectSample = {
+  contact: boolean;
+  position: THREE.Vector3;
+  skid: number;
+  lock: number;
+  width: number;
+};
+
+type TrackSegment = {
+  start: THREE.Vector3;
+  end: THREE.Vector3;
+  width: number;
+  intensity: number;
+  age: number;
+  y: number;
+};
+
+type TrackDebugState = {
+  segments: number;
+  skid: number;
+  lock: number;
+  peakLock: number;
+};
+
+type AudioContextWindow = Window &
+  typeof globalThis & {
+    webkitAudioContext?: typeof AudioContext;
+  };
+
 const MAX_FRAME_DELTA = 0.1;
 const KEY_TAP_HOLD_MS = 90;
+const MAX_TIRE_TRACK_SEGMENTS = 2600;
+const TIRE_TRACK_LIFETIME_SECONDS = 13;
+const TIRE_TRACK_FADE_START_SECONDS = 4.5;
+
+let vehicleAudio: VehicleAudio | null = null;
 
 const appElement = document.querySelector<HTMLDivElement>("#app");
 
@@ -92,6 +126,7 @@ renderer.domElement.tabIndex = 0;
 renderer.domElement.setAttribute("aria-label", "Driving game viewport");
 renderer.domElement.addEventListener("pointerdown", () => {
   renderer.domElement.focus();
+  vehicleAudio?.unlock();
 });
 app.append(renderer.domElement);
 
@@ -159,6 +194,39 @@ class VehicleController {
     return this.telemetry;
   }
 
+  getWheelEffectSamples(input: InputState): WheelEffectSample[] {
+    this.group.updateWorldMatrix(true, true);
+    return this.telemetry.wheels.map((wheel, index) => {
+      const position = new THREE.Vector3();
+      this.wheelVisuals[index]?.root.getWorldPosition(position);
+      position.y = 0.052;
+
+      const roadSpeed = Math.abs(this.telemetry.signedSpeedKmh) / 3.6;
+      const surfaceSpeed = Math.abs(wheel.angularVelocity * this.config.wheelRadius);
+      const speedMismatch =
+        Math.abs(surfaceSpeed - roadSpeed) / Math.max(roadSpeed, surfaceSpeed, 1.4);
+      const speedMismatchSlip =
+        smoothStep(0.18, 0.72, speedMismatch) *
+        smoothStep(1.2, 4.5, Math.max(roadSpeed, surfaceSpeed));
+      const lockRatio =
+        roadSpeed > 0.2 ? 1 - surfaceSpeed / Math.max(roadSpeed, 0.001) : 0;
+      const lockSlip = smoothStep(0.28, 0.76, lockRatio) * smoothStep(1.2, 4.0, roadSpeed);
+      const handbrakeLock =
+        input.handbrake && !wheel.isFront ? smoothStep(1.2, 4.0, roadSpeed) : 0;
+      const spinSlip = smoothStep(0.75, 3.6, Math.abs(wheel.longitudinalSlip));
+      const lateralSlip = smoothStep(0.42, 1.25, Math.abs(wheel.lateralSlip));
+      const skid = Math.max(spinSlip, lateralSlip, speedMismatchSlip, handbrakeLock * 0.8);
+      const lock = Math.max(lockSlip, handbrakeLock);
+      return {
+        contact: wheel.contact,
+        position,
+        skid,
+        lock,
+        width: this.config.wheelWidth * THREE.MathUtils.lerp(0.62, 0.95, Math.max(skid, lock)),
+      };
+    });
+  }
+
   private createVisuals() {
     const chassisGeometry = new THREE.BoxGeometry(2.05, 0.72, 3.35);
     const chassisMaterial = new THREE.MeshStandardMaterial({
@@ -208,6 +276,292 @@ class VehicleController {
         orientStrut(visual.strut, hardpoint, transform.position);
       }
     }
+  }
+}
+
+class TireTrackSystem {
+  private readonly geometry = new THREE.BufferGeometry();
+  private readonly material = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.82,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  });
+  private readonly mesh = new THREE.Mesh(this.geometry, this.material);
+  private readonly segments: TrackSegment[] = [];
+  private readonly previousPoints: Array<THREE.Vector3 | null> = [];
+  private latestSkid = 0;
+  private latestLock = 0;
+  private peakLock = 0;
+  private sequence = 0;
+
+  constructor(targetScene: THREE.Scene) {
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 1;
+    targetScene.add(this.mesh);
+  }
+
+  update(samples: WheelEffectSample[], dt: number) {
+    let changed = false;
+    this.latestSkid = 0;
+    this.latestLock = 0;
+
+    for (let index = this.segments.length - 1; index >= 0; index -= 1) {
+      const segment = this.segments[index];
+      if (!segment) {
+        continue;
+      }
+      segment.age += dt;
+      if (segment.age >= TIRE_TRACK_LIFETIME_SECONDS) {
+        this.segments.splice(index, 1);
+      }
+      changed = true;
+    }
+
+    for (const [index, sample] of samples.entries()) {
+      this.latestSkid = Math.max(this.latestSkid, sample.skid);
+      this.latestLock = Math.max(this.latestLock, sample.lock);
+      this.peakLock = Math.max(this.peakLock, sample.lock);
+      const markStrength = Math.max(sample.skid, sample.lock);
+      if (!sample.contact || markStrength < 0.16) {
+        this.previousPoints[index] = null;
+        continue;
+      }
+
+      const current = sample.position.clone();
+      const previous = this.previousPoints[index];
+      if (!previous) {
+        this.previousPoints[index] = current;
+        continue;
+      }
+
+      const distance = previous.distanceTo(current);
+      if (distance < 0.11) {
+        continue;
+      }
+
+      if (distance > 2.4) {
+        this.previousPoints[index] = current;
+        continue;
+      }
+
+      this.addSegment(previous, current, sample.width, markStrength);
+      this.previousPoints[index] = current;
+      changed = true;
+    }
+
+    if (changed) {
+      this.rebuildGeometry();
+    }
+  }
+
+  getDebugState(): TrackDebugState {
+    return {
+      segments: this.segments.length,
+      skid: Number(this.latestSkid.toFixed(2)),
+      lock: Number(this.latestLock.toFixed(2)),
+      peakLock: Number(this.peakLock.toFixed(2)),
+    };
+  }
+
+  private addSegment(start: THREE.Vector3, end: THREE.Vector3, width: number, intensity: number) {
+    this.sequence += 1;
+    this.segments.push({
+      start: start.clone(),
+      end: end.clone(),
+      width,
+      intensity: THREE.MathUtils.clamp(intensity, 0, 1),
+      age: 0,
+      y: 0.052 + (this.sequence % 6) * 0.0006,
+    });
+    if (this.segments.length > MAX_TIRE_TRACK_SEGMENTS) {
+      this.segments.splice(0, this.segments.length - MAX_TIRE_TRACK_SEGMENTS);
+    }
+  }
+
+  private rebuildGeometry() {
+    const positions = new Float32Array(this.segments.length * 6 * 3);
+    const colors = new Float32Array(this.segments.length * 6 * 3);
+    const color = new THREE.Color();
+    let positionOffset = 0;
+    let colorOffset = 0;
+
+    for (const segment of this.segments) {
+      const start = segment.start.clone();
+      const end = segment.end.clone();
+      start.y = segment.y;
+      end.y = segment.y;
+
+      const direction = end.clone().sub(start);
+      direction.y = 0;
+      if (direction.lengthSq() < 0.0001) {
+        continue;
+      }
+      direction.normalize();
+      const perpendicular = new THREE.Vector3(-direction.z, 0, direction.x).multiplyScalar(
+        segment.width / 2,
+      );
+      const a = start.clone().add(perpendicular);
+      const b = start.clone().sub(perpendicular);
+      const c = end.clone().add(perpendicular);
+      const d = end.clone().sub(perpendicular);
+      const vertices = [a, b, c, c, b, d];
+      const fade = smoothStep(
+        TIRE_TRACK_FADE_START_SECONDS,
+        TIRE_TRACK_LIFETIME_SECONDS,
+        segment.age,
+      );
+      const visibleIntensity = segment.intensity * (1 - fade);
+      color.setScalar(THREE.MathUtils.lerp(0.13, 0.0, visibleIntensity));
+
+      for (const vertex of vertices) {
+        positions[positionOffset++] = vertex.x;
+        positions[positionOffset++] = vertex.y;
+        positions[positionOffset++] = vertex.z;
+        colors[colorOffset++] = color.r;
+        colors[colorOffset++] = color.g;
+        colors[colorOffset++] = color.b;
+      }
+    }
+
+    this.geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    this.geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    this.material.vertexColors = true;
+    this.geometry.computeBoundingSphere();
+  }
+}
+
+class VehicleAudio {
+  private context: AudioContext | null = null;
+  private engineOscillator: OscillatorNode | null = null;
+  private engineHarmonic: OscillatorNode | null = null;
+  private engineGain: GainNode | null = null;
+  private tireGain: GainNode | null = null;
+  private tireFilter: BiquadFilterNode | null = null;
+
+  unlock() {
+    if (!this.context) {
+      this.createGraph();
+    }
+    void this.context?.resume();
+  }
+
+  update(telemetry: JoltVehicleTelemetry, input: InputState) {
+    if (!this.context || !this.engineOscillator || !this.engineHarmonic || !this.engineGain || !this.tireGain || !this.tireFilter) {
+      return;
+    }
+
+    const now = this.context.currentTime;
+    const rpmRatio = THREE.MathUtils.clamp(
+      (telemetry.engineRpm - defaultJoltVehicleConfig.minRpm) /
+        (defaultJoltVehicleConfig.maxRpm - defaultJoltVehicleConfig.minRpm),
+      0,
+      1,
+    );
+    const throttle = input.throttle ? 1 : 0;
+    const engineFrequency = THREE.MathUtils.lerp(34, 142, rpmRatio);
+    const engineVolume = THREE.MathUtils.lerp(0.018, 0.075, rpmRatio) + throttle * 0.042;
+    const slip = this.computeSlipLevel(telemetry, input);
+    const tireVolume = Math.pow(slip, 1.4) * 0.22;
+
+    this.engineOscillator.frequency.setTargetAtTime(engineFrequency, now, 0.035);
+    this.engineHarmonic.frequency.setTargetAtTime(engineFrequency * 1.98, now, 0.035);
+    this.engineGain.gain.setTargetAtTime(engineVolume, now, 0.06);
+    this.tireGain.gain.setTargetAtTime(tireVolume, now, 0.025);
+    this.tireFilter.frequency.setTargetAtTime(THREE.MathUtils.lerp(650, 2600, slip), now, 0.04);
+    this.tireFilter.Q.setTargetAtTime(THREE.MathUtils.lerp(5, 12, slip), now, 0.05);
+  }
+
+  private createGraph() {
+    const AudioContextCtor =
+      window.AudioContext || (window as AudioContextWindow).webkitAudioContext;
+    if (!AudioContextCtor) {
+      return;
+    }
+
+    const context = new AudioContextCtor();
+    const master = context.createGain();
+    const compressor = context.createDynamicsCompressor();
+    const engineFilter = context.createBiquadFilter();
+    const engineGain = context.createGain();
+    const engineOscillator = context.createOscillator();
+    const engineHarmonic = context.createOscillator();
+    const harmonicGain = context.createGain();
+    const noise = context.createBufferSource();
+    const tireFilter = context.createBiquadFilter();
+    const tireGain = context.createGain();
+
+    master.gain.value = 0.48;
+    compressor.threshold.value = -20;
+    compressor.knee.value = 20;
+    compressor.ratio.value = 8;
+    compressor.attack.value = 0.004;
+    compressor.release.value = 0.18;
+
+    engineFilter.type = "lowpass";
+    engineFilter.frequency.value = 720;
+    engineFilter.Q.value = 0.8;
+    engineGain.gain.value = 0;
+    engineOscillator.type = "sawtooth";
+    engineHarmonic.type = "triangle";
+    harmonicGain.gain.value = 0.34;
+
+    noise.buffer = createNoiseBuffer(context);
+    noise.loop = true;
+    tireFilter.type = "bandpass";
+    tireFilter.frequency.value = 900;
+    tireFilter.Q.value = 7;
+    tireGain.gain.value = 0;
+
+    engineOscillator.connect(engineGain);
+    engineHarmonic.connect(harmonicGain);
+    harmonicGain.connect(engineGain);
+    engineGain.connect(engineFilter);
+    engineFilter.connect(compressor);
+    noise.connect(tireFilter);
+    tireFilter.connect(tireGain);
+    tireGain.connect(compressor);
+    compressor.connect(master);
+    master.connect(context.destination);
+
+    engineOscillator.start();
+    engineHarmonic.start();
+    noise.start();
+
+    this.context = context;
+    this.engineOscillator = engineOscillator;
+    this.engineHarmonic = engineHarmonic;
+    this.engineGain = engineGain;
+    this.tireGain = tireGain;
+    this.tireFilter = tireFilter;
+  }
+
+  private computeSlipLevel(telemetry: JoltVehicleTelemetry, input: InputState) {
+    const roadSpeed = Math.abs(telemetry.signedSpeedKmh) / 3.6;
+    return telemetry.wheels.reduce((maximum, wheel) => {
+      if (!wheel.contact) {
+        return maximum;
+      }
+      const surfaceSpeed = Math.abs(wheel.angularVelocity * defaultJoltVehicleConfig.wheelRadius);
+      const speedMismatch =
+        Math.abs(surfaceSpeed - roadSpeed) / Math.max(roadSpeed, surfaceSpeed, 1.4);
+      const lockRatio =
+        roadSpeed > 0.2 ? 1 - surfaceSpeed / Math.max(roadSpeed, 0.001) : 0;
+      const spinSlip = smoothStep(0.75, 4.5, Math.abs(wheel.longitudinalSlip));
+      const lateralSlip = smoothStep(0.38, 1.25, Math.abs(wheel.lateralSlip));
+      const speedSlip =
+        smoothStep(0.18, 0.72, speedMismatch) *
+        smoothStep(1.2, 4.5, Math.max(roadSpeed, surfaceSpeed));
+      const lockSlip =
+        smoothStep(0.28, 0.76, lockRatio) * smoothStep(1.2, 4.0, roadSpeed);
+      const handbrakeLock =
+        input.handbrake && !wheel.isFront ? smoothStep(1.2, 4.0, roadSpeed) : 0;
+      return Math.max(maximum, spinSlip, lateralSlip, speedSlip, lockSlip, handbrakeLock);
+    }, 0);
   }
 }
 
@@ -345,7 +699,7 @@ function updateCamera(vehicle: VehicleController, dt: number) {
   camera.lookAt(lookAt);
 }
 
-function bindInput(targetInput: InputState) {
+function bindInput(targetInput: InputState, unlockAudio: () => void) {
   const keyMap: Record<string, keyof InputState> = {
     ArrowUp: "throttle",
     ArrowDown: "brake",
@@ -363,6 +717,7 @@ function bindInput(targetInput: InputState) {
       return;
     }
     event.preventDefault();
+    unlockAudio();
     clearTimeout(releaseTimers[action]);
     targetInput[action] = true;
   });
@@ -391,7 +746,9 @@ function resize() {
 async function start() {
   const world = await createJoltDrivingWorld();
   const vehicle = new VehicleController(world, defaultJoltVehicleConfig);
-  bindInput(inputState);
+  const tireTracks = new TireTrackSystem(scene);
+  vehicleAudio = new VehicleAudio();
+  bindInput(inputState, () => vehicleAudio?.unlock());
   startDevAutodrive();
   loading.classList.add("loading--hidden");
 
@@ -410,8 +767,11 @@ async function start() {
     }
 
     vehicle.syncVisuals();
+    const telemetry = vehicle.getTelemetry();
+    tireTracks.update(vehicle.getWheelEffectSamples(inputState), frameDelta);
+    vehicleAudio?.update(telemetry, inputState);
     updateCamera(vehicle, frameDelta);
-    updateHud(vehicle.getTelemetry(), vehicle.getPosition());
+    updateHud(telemetry, vehicle.getPosition(), tireTracks.getDebugState());
     renderer.render(scene, camera);
     requestAnimationFrame(frame);
   };
@@ -419,7 +779,11 @@ async function start() {
   requestAnimationFrame(frame);
 }
 
-function updateHud(telemetry: JoltVehicleTelemetry, position: THREE.Vector3) {
+function updateHud(
+  telemetry: JoltVehicleTelemetry,
+  position: THREE.Vector3,
+  trackDebug: TrackDebugState,
+) {
   if (speedValue) {
     speedValue.textContent = `${Math.round(telemetry.speedKmh)} km/h`;
   }
@@ -463,6 +827,7 @@ function updateHud(telemetry: JoltVehicleTelemetry, position: THREE.Vector3) {
         Number(wheel.longitudinalSlip.toFixed(2)),
         Number(wheel.lateralSlip.toFixed(2)),
       ]),
+      tracks: trackDebug,
       stage: devAutodriveStage,
     });
   }
@@ -570,6 +935,30 @@ function orientStrut(strut: THREE.Mesh, start: THREE.Vector3, end: THREE.Vector3
   strut.position.copy(midpoint);
   strut.scale.set(1, length, 1);
   strut.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+}
+
+function createNoiseBuffer(context: AudioContext) {
+  const durationSeconds = 1.5;
+  const buffer = context.createBuffer(
+    1,
+    Math.floor(context.sampleRate * durationSeconds),
+    context.sampleRate,
+  );
+  const data = buffer.getChannelData(0);
+  let previous = 0;
+
+  for (let index = 0; index < data.length; index += 1) {
+    const white = Math.random() * 2 - 1;
+    previous = previous * 0.86 + white * 0.14;
+    data[index] = previous;
+  }
+
+  return buffer;
+}
+
+function smoothStep(edge0: number, edge1: number, value: number) {
+  const x = THREE.MathUtils.clamp((value - edge0) / Math.max(edge1 - edge0, 0.001), 0, 1);
+  return x * x * (3 - 2 * x);
 }
 
 window.addEventListener("resize", resize);
