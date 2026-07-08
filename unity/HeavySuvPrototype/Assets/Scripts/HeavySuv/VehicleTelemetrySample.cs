@@ -9,12 +9,14 @@ namespace HeavySuvPrototype
         public float signedSpeedMetersPerSecond;
         public float speedKmh;
         public float headingDegrees;
+        public float slipAngleDegrees;
+        public float countersteerAssistInput;
         public float pitchDegrees;
         public float rollDegrees;
         public DriveMode driveMode;
-        public GearboxMode gearboxMode;
-        public string activeGearLabel;
-        public float engineTorque;
+        public DriveSelectorMode selectorMode;
+        public string activeSelectorLabel;
+        public float motorTorque;
         public WheelTelemetry[] wheels;
     }
 }

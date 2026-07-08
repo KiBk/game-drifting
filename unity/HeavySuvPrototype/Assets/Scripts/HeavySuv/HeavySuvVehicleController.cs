@@ -19,31 +19,46 @@ namespace HeavySuvPrototype
         public bool useKeyboardInput = true;
 
         [Header("Mass")]
-        public float massKg = 3250f;
-        public Vector3 centerOfMass = new Vector3(0f, 0.32f, 0.08f);
+        public float massKg = 1550f;
+        public Vector3 centerOfMass = new Vector3(0f, -0.08f, 0.06f);
 
         [Header("Drivetrain")]
         public DriveMode driveMode = DriveMode.Awd;
-        public GearboxMode gearboxMode = GearboxMode.Auto;
-        public float engineTorque = 12000f;
-        public float reverseTorque = 3200f;
-        public float brakeTorque = 3600f;
-        public float handbrakeTorque = 7200f;
-        public float idleWheelDamping = 0.5f;
+        public DriveSelectorMode selectorMode = DriveSelectorMode.Auto;
+        public float motorTorque = 6800f;
+        public float reverseMotorTorque = 3000f;
+        public float brakeTorque = 3000f;
+        public float handbrakeTorque = 5600f;
+        public float idleWheelDamping = 0.42f;
         public float reverseStartSpeed = 0.18f;
-        public float firstGearMaxKmh = 48f;
-        public float secondGearMaxKmh = 105f;
-        public float firstGearTorqueMultiplier = 1.12f;
-        public float secondGearTorqueMultiplier = 0.72f;
-        public float autoShiftUpKmh = 36f;
-        public float autoShiftDownKmh = 24f;
-        public float drivetrainReferenceWheelRadius = 0.63f;
+        public float motorConstantTorqueEndKmh = 72f;
+        public float motorMaximumSpeedKmh = 180f;
+        [Range(0f, 1f)] public float motorTorqueAtMaximumSpeed = 0.18f;
+        public float drivetrainReferenceWheelRadius = 0.34f;
+        [Range(0f, 0.5f)] public float awdFrontTorqueShare = 0.4f;
+        public float tractionSlipStart = 0.34f;
+        public float tractionSlipEnd = 0.9f;
+        [Range(0.2f, 1f)] public float minimumTractionDelivery = 0.4f;
+        public float rearSidewaysStiffness = 0.98f;
+        public float rwdPoweredRearSidewaysStiffness = 0.68f;
+        public float handbrakeRearSidewaysStiffness = 0.35f;
+        public float rwdGripReductionStartSlip = 0.08f;
+        public float rwdGripReductionEndSlip = 0.55f;
 
         [Header("Steering")]
-        public float maxSteerAngle = 21.5f;
-        public float steerFadeStartKmh = 9f;
-        public float steerFadeEndKmh = 48f;
-        public float highSpeedSteerFactor = 0.18f;
+        public float maxSteerAngle = 23f;
+        public float steerFadeStartKmh = 8f;
+        public float steerFadeEndKmh = 72f;
+        public float highSpeedSteerFactor = 0.22f;
+        public bool countersteerAssistEnabled = true;
+        public float countersteerMinimumSpeedKmh = 18f;
+        public float countersteerStartAngleDegrees = 6f;
+        public float countersteerFullAngleDegrees = 24f;
+        public float countersteerStartYawRateDegrees = 12f;
+        public float countersteerFullYawRateDegrees = 65f;
+        [Range(0f, 1f)] public float maximumCountersteerInput = 0.75f;
+        [Range(0f, 1f)] public float countersteerManualRetention = 0.2f;
+        public float countersteerResponsePerSecond = 6.5f;
 
         [Header("Wheels")]
         public Wheel[] wheels = new Wheel[4];
@@ -52,7 +67,8 @@ namespace HeavySuvPrototype
         private VehicleInputState scriptedInput;
         private VehicleInputState lastInput;
         private bool previousDriveToggle;
-        private int automaticGear = 1;
+        private ConvoyTurboController convoyTurbo;
+        private float countersteerAssistInput;
 
         public Rigidbody Body
         {
@@ -64,11 +80,16 @@ namespace HeavySuvPrototype
         }
 
         public VehicleInputState LastInput => lastInput;
-        public string ActiveGearLabel { get; private set; } = "A1";
+        public string ActiveSelectorLabel { get; private set; } = "A";
         public bool BrakeLightsActive { get; private set; }
         public bool ReverseDriveActive { get; private set; }
         public bool HandbrakeActive { get; private set; }
         public float SignedSpeedMetersPerSecond => body == null ? 0f : Vector3.Dot(transform.forward, body.linearVelocity);
+        public ConvoyTurboController ConvoyTurbo => convoyTurbo;
+        public float LastDrivenWheelSlip { get; private set; }
+        public float TractionDelivery { get; private set; } = 1f;
+        public float CountersteerAssistInput => countersteerAssistInput;
+        public float VehicleSlipAngleDegrees { get; private set; }
 
         private void Awake()
         {
@@ -87,12 +108,17 @@ namespace HeavySuvPrototype
                 return;
             }
 
+            if (convoyTurbo == null)
+            {
+                convoyTurbo = GetComponent<ConvoyTurboController>();
+            }
+
             body.mass = massKg;
             body.centerOfMass = centerOfMass;
             body.interpolation = RigidbodyInterpolation.Interpolate;
             body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-            body.linearDamping = 0.03f;
-            body.angularDamping = 0.12f;
+            body.linearDamping = 0.025f;
+            body.angularDamping = 0.28f;
 
             foreach (Wheel wheel in wheels)
             {
@@ -136,9 +162,9 @@ namespace HeavySuvPrototype
             driveMode = mode;
         }
 
-        public void SetGearboxMode(GearboxMode mode)
+        public void SetSelectorMode(DriveSelectorMode mode)
         {
-            gearboxMode = mode;
+            selectorMode = mode;
         }
 
         public void ToggleDriveMode()
@@ -168,12 +194,14 @@ namespace HeavySuvPrototype
                 signedSpeedMetersPerSecond = localVelocity.z,
                 speedKmh = Mathf.Abs(localVelocity.z) * 3.6f,
                 headingDegrees = Mathf.Atan2(transform.forward.x, transform.forward.z) * Mathf.Rad2Deg,
+                slipAngleDegrees = VehicleSlipAngleDegrees,
+                countersteerAssistInput = CountersteerAssistInput,
                 pitchDegrees = euler.x,
                 rollDegrees = euler.z,
                 driveMode = driveMode,
-                gearboxMode = gearboxMode,
-                activeGearLabel = ActiveGearLabel,
-                engineTorque = engineTorque,
+                selectorMode = selectorMode,
+                activeSelectorLabel = ActiveSelectorLabel,
+                motorTorque = motorTorque,
                 wheels = wheelTelemetry
             };
         }
@@ -192,6 +220,7 @@ namespace HeavySuvPrototype
                 steerLeft = Input.GetKey(KeyCode.LeftArrow),
                 steerRight = Input.GetKey(KeyCode.RightArrow),
                 handbrake = Input.GetKey(KeyCode.Space),
+                turbo = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift),
                 toggleDriveMode = Input.GetKey(KeyCode.D)
             };
         }
@@ -201,7 +230,12 @@ namespace HeavySuvPrototype
             lastInput = input;
             float signedSpeed = Vector3.Dot(transform.forward, body.linearVelocity);
             float speedKmh = Mathf.Abs(signedSpeed) * 3.6f;
-            float steerInput = (input.steerRight ? 1f : 0f) - (input.steerLeft ? 1f : 0f);
+            float manualSteerInput = (input.steerRight ? 1f : 0f) - (input.steerLeft ? 1f : 0f);
+            float steerInput = ComputeAssistedSteerInput(
+                manualSteerInput,
+                signedSpeed,
+                speedKmh,
+                input.handbrake);
             float steeringFade = Mathf.Lerp(
                 1f,
                 highSpeedSteerFactor,
@@ -209,12 +243,21 @@ namespace HeavySuvPrototype
             float steering = steerInput * maxSteerAngle * steeringFade;
 
             DriveCommand drive = ComputeDriveCommand(input, signedSpeed, speedKmh);
+            LastDrivenWheelSlip = AverageDrivenWheelSlip();
+            TractionDelivery = ComputeTractionDelivery(LastDrivenWheelSlip);
+            UpdateRearGrip(input.throttle, input.handbrake, LastDrivenWheelSlip);
+            if (convoyTurbo != null)
+            {
+                convoyTurbo.Step(Time.fixedDeltaTime, input.turbo, LastDrivenWheelSlip);
+            }
+
+            float turboMultiplier = convoyTurbo == null ? 1f : convoyTurbo.TorqueMultiplier;
+            drive.motorTorque *= TractionDelivery * turboMultiplier;
             BrakeLightsActive = drive.serviceBraking || input.handbrake;
             ReverseDriveActive = drive.reverseDriving;
             HandbrakeActive = input.handbrake;
-            ActiveGearLabel = drive.activeGearLabel;
+            ActiveSelectorLabel = drive.activeSelectorLabel;
 
-            int drivenWheelCount = CountDrivenWheels();
             foreach (Wheel wheel in wheels)
             {
                 if (wheel?.collider == null)
@@ -225,99 +268,149 @@ namespace HeavySuvPrototype
                 wheel.collider.steerAngle = wheel.isFront ? steering : 0f;
                 float wheelGearingScale = GetWheelGearingScale(wheel);
                 wheel.collider.motorTorque =
-                    IsDriven(wheel) && drivenWheelCount > 0 ? drive.motorTorque * wheelGearingScale / drivenWheelCount : 0f;
+                    IsDriven(wheel) && !(input.handbrake && !wheel.isFront)
+                        ? GetWheelTorque(wheel, drive.motorTorque) * wheelGearingScale
+                        : 0f;
                 wheel.collider.brakeTorque = ComputeBrakeTorque(wheel, drive.serviceBraking, input.handbrake);
             }
+        }
+
+        private float ComputeAssistedSteerInput(
+            float manualSteerInput,
+            float signedSpeed,
+            float speedKmh,
+            bool handbrake)
+        {
+            VehicleSlipAngleDegrees = ComputeSignedSlipAngleDegrees();
+            if (handbrake)
+            {
+                countersteerAssistInput = 0f;
+                return manualSteerInput;
+            }
+
+            float targetAssist = 0f;
+            if (countersteerAssistEnabled && signedSpeed > 0f && speedKmh >= countersteerMinimumSpeedKmh)
+            {
+                float slipStrength = Mathf.InverseLerp(
+                    countersteerStartAngleDegrees,
+                    countersteerFullAngleDegrees,
+                    Mathf.Abs(VehicleSlipAngleDegrees));
+                float yawRateDegrees = body.angularVelocity.y * Mathf.Rad2Deg;
+                float yawStrength = Mathf.InverseLerp(
+                    countersteerStartYawRateDegrees,
+                    countersteerFullYawRateDegrees,
+                    Mathf.Abs(yawRateDegrees));
+                if (yawStrength >= slipStrength)
+                {
+                    targetAssist = -Mathf.Sign(yawRateDegrees) * yawStrength * maximumCountersteerInput;
+                }
+                else
+                {
+                    targetAssist = -Mathf.Sign(VehicleSlipAngleDegrees) * slipStrength * maximumCountersteerInput;
+                }
+            }
+
+            countersteerAssistInput = Mathf.MoveTowards(
+                countersteerAssistInput,
+                targetAssist,
+                countersteerResponsePerSecond * Time.fixedDeltaTime);
+            float normalizedAssist = maximumCountersteerInput > 0.001f
+                ? Mathf.Clamp01(Mathf.Abs(countersteerAssistInput) / maximumCountersteerInput)
+                : 0f;
+            float retainedManualInput = manualSteerInput * Mathf.Lerp(
+                1f,
+                countersteerManualRetention,
+                normalizedAssist);
+            return Mathf.Clamp(retainedManualInput + countersteerAssistInput, -1f, 1f);
+        }
+
+        private float ComputeSignedSlipAngleDegrees()
+        {
+            Vector3 planarVelocity = Vector3.ProjectOnPlane(body.linearVelocity, transform.up);
+            if (planarVelocity.sqrMagnitude < 0.25f)
+            {
+                return 0f;
+            }
+
+            return Vector3.SignedAngle(transform.forward, planarVelocity.normalized, transform.up);
         }
 
         private DriveCommand ComputeDriveCommand(VehicleInputState input, float signedSpeed, float speedKmh)
         {
             DriveCommand command = new DriveCommand
             {
-                activeGearLabel = GearboxModeLabel(gearboxMode)
+                activeSelectorLabel = SelectorModeLabel(selectorMode)
             };
 
-            switch (gearboxMode)
+            switch (selectorMode)
             {
-                case GearboxMode.Reverse:
+                case DriveSelectorMode.Reverse:
                     command.serviceBraking = input.brake;
                     command.reverseDriving = input.throttle;
-                    command.motorTorque = input.throttle ? -reverseTorque : 0f;
-                    command.activeGearLabel = "R";
+                    command.motorTorque = input.throttle ? -ComputeElectricMotorTorque(speedKmh, reverseMotorTorque) : 0f;
+                    command.activeSelectorLabel = "R";
                     return command;
 
-                case GearboxMode.Neutral:
+                case DriveSelectorMode.Neutral:
                     command.serviceBraking = input.brake;
-                    command.activeGearLabel = "N";
+                    command.activeSelectorLabel = "N";
                     return command;
 
-                case GearboxMode.First:
+                case DriveSelectorMode.Drive:
                     command.serviceBraking = input.brake;
-                    command.motorTorque = input.throttle ? ComputeForwardGearTorque(1, speedKmh) : 0f;
-                    command.activeGearLabel = "1";
+                    command.motorTorque = input.throttle ? ComputeElectricMotorTorque(speedKmh, motorTorque) : 0f;
+                    command.activeSelectorLabel = "D";
                     return command;
 
-                case GearboxMode.Second:
-                    command.serviceBraking = input.brake;
-                    command.motorTorque = input.throttle ? ComputeForwardGearTorque(2, speedKmh) : 0f;
-                    command.activeGearLabel = "2";
-                    return command;
-
-                case GearboxMode.Auto:
+                case DriveSelectorMode.Auto:
                 default:
-                    if (speedKmh > autoShiftUpKmh)
-                    {
-                        automaticGear = 2;
-                    }
-                    else if (speedKmh < autoShiftDownKmh)
-                    {
-                        automaticGear = 1;
-                    }
-
                     bool reversing = input.brake && signedSpeed < reverseStartSpeed;
                     command.serviceBraking = input.brake && !reversing;
                     command.reverseDriving = reversing;
                     if (input.throttle)
                     {
-                        command.motorTorque = ComputeForwardGearTorque(automaticGear, speedKmh);
-                        command.activeGearLabel = automaticGear == 1 ? "A1" : "A2";
+                        command.motorTorque = ComputeElectricMotorTorque(speedKmh, motorTorque);
                     }
                     else if (reversing)
                     {
-                        command.motorTorque = -reverseTorque;
-                        command.activeGearLabel = "AR";
-                    }
-                    else
-                    {
-                        command.activeGearLabel = automaticGear == 1 ? "A1" : "A2";
+                        command.motorTorque = -ComputeElectricMotorTorque(speedKmh, reverseMotorTorque);
                     }
 
+                    command.activeSelectorLabel = "A";
                     return command;
             }
         }
 
-        private float ComputeForwardGearTorque(int gear, float speedKmh)
+        private float ComputeElectricMotorTorque(float speedKmh, float peakTorque)
         {
-            float maxSpeed = gear == 1 ? firstGearMaxKmh : secondGearMaxKmh;
-            float multiplier = gear == 1 ? firstGearTorqueMultiplier : secondGearTorqueMultiplier;
-            float fadeStart = maxSpeed * 0.82f;
-            float limiter = speedKmh >= maxSpeed ? 0f : 1f - Mathf.InverseLerp(fadeStart, maxSpeed, speedKmh);
-            return engineTorque * multiplier * Mathf.Clamp01(limiter);
+            if (speedKmh >= motorMaximumSpeedKmh)
+            {
+                return 0f;
+            }
+
+            float highSpeedFade = Mathf.InverseLerp(
+                motorConstantTorqueEndKmh,
+                motorMaximumSpeedKmh,
+                speedKmh);
+            float torqueFactor = Mathf.Lerp(1f, motorTorqueAtMaximumSpeed, highSpeedFade);
+            float limiter = 1f - Mathf.InverseLerp(
+                motorMaximumSpeedKmh * 0.96f,
+                motorMaximumSpeedKmh,
+                speedKmh);
+            return peakTorque * torqueFactor * Mathf.Clamp01(limiter);
         }
 
-        private static string GearboxModeLabel(GearboxMode mode)
+        private static string SelectorModeLabel(DriveSelectorMode mode)
         {
             switch (mode)
             {
-                case GearboxMode.Reverse:
+                case DriveSelectorMode.Reverse:
                     return "R";
-                case GearboxMode.Neutral:
+                case DriveSelectorMode.Neutral:
                     return "N";
-                case GearboxMode.First:
-                    return "1";
-                case GearboxMode.Second:
-                    return "2";
-                case GearboxMode.Auto:
+                case DriveSelectorMode.Drive:
+                    return "D";
+                case DriveSelectorMode.Auto:
                 default:
                     return "A";
             }
@@ -340,18 +433,94 @@ namespace HeavySuvPrototype
             return radius / Mathf.Max(drivetrainReferenceWheelRadius, 0.001f);
         }
 
-        private int CountDrivenWheels()
+        private float GetWheelTorque(Wheel wheel, float totalTorque)
+        {
+            if (driveMode == DriveMode.Rwd)
+            {
+                int rearWheelCount = CountWheels(front: false);
+                return wheel.isFront || rearWheelCount == 0 ? 0f : totalTorque / rearWheelCount;
+            }
+
+            int axleWheelCount = CountWheels(wheel.isFront);
+            if (axleWheelCount == 0)
+            {
+                return 0f;
+            }
+
+            float axleShare = wheel.isFront ? awdFrontTorqueShare : 1f - awdFrontTorqueShare;
+            return totalTorque * axleShare / axleWheelCount;
+        }
+
+        private int CountWheels(bool front)
         {
             int count = 0;
             foreach (Wheel wheel in wheels)
             {
-                if (wheel != null && IsDriven(wheel))
+                if (wheel?.collider != null && wheel.isFront == front)
                 {
                     count += 1;
                 }
             }
 
             return count;
+        }
+
+        private float AverageDrivenWheelSlip()
+        {
+            float slip = 0f;
+            int groundedWheelCount = 0;
+            foreach (Wheel wheel in wheels)
+            {
+                if (wheel?.collider == null || !IsDriven(wheel) || !wheel.collider.GetGroundHit(out WheelHit hit))
+                {
+                    continue;
+                }
+
+                slip += Mathf.Sqrt(
+                    hit.forwardSlip * hit.forwardSlip +
+                    hit.sidewaysSlip * hit.sidewaysSlip);
+                groundedWheelCount += 1;
+            }
+
+            return groundedWheelCount > 0 ? slip / groundedWheelCount : 0f;
+        }
+
+        private float ComputeTractionDelivery(float drivenWheelSlip)
+        {
+            if (driveMode == DriveMode.Rwd)
+            {
+                return 1f;
+            }
+
+            float reduction = Mathf.InverseLerp(tractionSlipStart, tractionSlipEnd, Mathf.Abs(drivenWheelSlip));
+            return Mathf.Lerp(1f, minimumTractionDelivery, reduction);
+        }
+
+        private void UpdateRearGrip(bool throttle, bool handbrake, float drivenWheelSlip)
+        {
+            float reduction = driveMode == DriveMode.Rwd && throttle
+                ? Mathf.InverseLerp(rwdGripReductionStartSlip, rwdGripReductionEndSlip, drivenWheelSlip)
+                : 0f;
+            float targetStiffness = Mathf.Lerp(
+                rearSidewaysStiffness,
+                rwdPoweredRearSidewaysStiffness,
+                reduction);
+            if (handbrake)
+            {
+                targetStiffness = handbrakeRearSidewaysStiffness;
+            }
+
+            foreach (Wheel wheel in wheels)
+            {
+                if (wheel?.collider == null || wheel.isFront)
+                {
+                    continue;
+                }
+
+                WheelFrictionCurve sideways = wheel.collider.sidewaysFriction;
+                sideways.stiffness = targetStiffness;
+                wheel.collider.sidewaysFriction = sideways;
+            }
         }
 
         private bool IsDriven(Wheel wheel)
@@ -422,7 +591,7 @@ namespace HeavySuvPrototype
             public float motorTorque;
             public bool serviceBraking;
             public bool reverseDriving;
-            public string activeGearLabel;
+            public string activeSelectorLabel;
         }
     }
 }

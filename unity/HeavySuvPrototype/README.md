@@ -1,20 +1,37 @@
-# Heavy SUV Unity Prototype
+# Convoy Rally Unity Prototype
 
 Unity 6 project for the next driving prototype. The committed browser app remains
 at the repository root as a reference, while this folder contains the
-WheelCollider-based version intended for WebGL.
+WheelCollider-based rally-car version intended for WebGL. The Unity project and
+namespace retain their original `HeavySuvPrototype` names to avoid unrelated
+asset churn while the gameplay-facing prototype moves to the rally format.
 
 ## Scope
 
 - Flat plane with grid markings.
-- Simple SUV body with four visible wheels.
-- Rigidbody chassis plus four WheelColliders.
+- Procedural low, wide rally hatch with four visible wheels.
+- 1,550 kg Rigidbody chassis plus four WheelColliders.
+- Single-speed electric drive with rear-biased AWD and an RWD development toggle.
+- Standard WheelCollider spring/friction behavior with compliant suspension,
+  progressive grip loss, and traction-aware torque delivery.
 - Arrow-key throttle, brake/reverse, and steering.
 - Space handbrake.
+- `R`, `N`, `D`, and `A` remain as direction/drive selectors; there are no gears.
+- Shift directly activates traction-aware 1.65x boost while held.
 - `D` toggles AWD/RWD.
-- Chase camera and telemetry HUD.
+- Slip-angle and yaw-rate countersteer assistance makes keyboard drifting
+  catchable; it can be disabled from the HUD for raw steering.
+- Layered open-source electric-motor, tire-rolling, wheelspin, and locked-tire audio.
+- HUD sound-effects volume control.
+- Lower rally-car body and center of mass for sustained-corner rollover resistance.
+- Chase camera and telemetry HUD with selector and boost status.
 - PlayMode coordinate tests for steering signs, straight driving, reverse,
-  settling, and AWD/RWD slip behavior.
+  settling, controlled oversteer, rollover resistance, and turbo behavior.
+
+See `CONVOY_RALLY.md` for the planned two-player stage format and the future
+multiplayer progress contract.
+
+Audio sources and licenses are listed in `Assets/Resources/Audio/CREDITS.md`.
 
 ## Batch Commands
 

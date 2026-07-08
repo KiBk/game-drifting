@@ -4,9 +4,8 @@ namespace HeavySuvPrototype
 {
     public static class HeavySuvPrototypeFactory
     {
-        private const float WheelRadius = 0.44f;
-        private const float WheelWidth = 0.24f;
-        private const string QuaterniusSuvBodyPath = "Assets/External/Quaternius/Cars/OBJ/SUV_BodyOnly.obj";
+        private const float WheelRadius = 0.34f;
+        private const float WheelWidth = 0.25f;
 
         public static HeavySuvVehicleController CreatePrototype(bool includeCameraAndHud = true)
         {
@@ -59,23 +58,23 @@ namespace HeavySuvPrototype
 
         private static HeavySuvVehicleController CreateVehicle()
         {
-            GameObject root = new GameObject("Heavy SUV");
-            root.transform.position = new Vector3(0f, 0.74f, 0f);
+            GameObject root = new GameObject("Rally Car");
+            root.transform.position = new Vector3(0f, 0.52f, 0f);
             root.transform.rotation = Quaternion.identity;
 
             Rigidbody body = root.AddComponent<Rigidbody>();
-            body.mass = 3250f;
+            body.mass = 1550f;
 
             BoxCollider chassisCollider = root.AddComponent<BoxCollider>();
-            chassisCollider.center = new Vector3(0f, 0.48f, 0.02f);
-            chassisCollider.size = new Vector3(2.1f, 0.72f, 3.45f);
+            chassisCollider.center = new Vector3(0f, 0.2f, 0.02f);
+            chassisCollider.size = new Vector3(1.82f, 0.42f, 3.72f);
 
             HeavySuvVehicleController controller = root.AddComponent<HeavySuvVehicleController>();
             controller.wheels = new HeavySuvVehicleController.Wheel[4];
-            controller.wheels[0] = CreateWheel(root.transform, "Front Left", true, true, -0.89f, 1.3f);
-            controller.wheels[1] = CreateWheel(root.transform, "Front Right", true, false, 0.89f, 1.3f);
-            controller.wheels[2] = CreateWheel(root.transform, "Rear Left", false, true, -0.89f, -1.24f);
-            controller.wheels[3] = CreateWheel(root.transform, "Rear Right", false, false, 0.89f, -1.24f);
+            controller.wheels[0] = CreateWheel(root.transform, "Front Left", true, true, -0.825f, 1.3f);
+            controller.wheels[1] = CreateWheel(root.transform, "Front Right", true, false, 0.825f, 1.3f);
+            controller.wheels[2] = CreateWheel(root.transform, "Rear Left", false, true, -0.825f, -1.3f);
+            controller.wheels[3] = CreateWheel(root.transform, "Rear Right", false, false, 0.825f, -1.3f);
 
             CreateChassisVisual(root.transform);
             CreateBrakeLights(root.transform, controller);
@@ -86,6 +85,9 @@ namespace HeavySuvPrototype
             tireMarks.Bind(controller);
             VehicleAudio vehicleAudio = root.AddComponent<VehicleAudio>();
             vehicleAudio.Bind(controller);
+            ConvoyTurboController turbo = root.AddComponent<ConvoyTurboController>();
+            turbo.SetGapState(ConvoyGapState.Invalid);
+            controller.EnsureInitialized();
             return controller;
         }
 
@@ -99,18 +101,18 @@ namespace HeavySuvPrototype
         {
             GameObject wheelObject = new GameObject($"{name} WheelCollider");
             wheelObject.transform.SetParent(parent, false);
-            wheelObject.transform.localPosition = new Vector3(x, 0f, z);
+            wheelObject.transform.localPosition = new Vector3(x, 0.01f, z);
             WheelCollider wheelCollider = wheelObject.AddComponent<WheelCollider>();
-            wheelCollider.mass = 58f;
+            wheelCollider.mass = 34f;
             wheelCollider.radius = WheelRadius;
-            wheelCollider.wheelDampingRate = 0.55f;
-            wheelCollider.suspensionDistance = 0.56f;
-            wheelCollider.forceAppPointDistance = 0.18f;
+            wheelCollider.wheelDampingRate = 0.5f;
+            wheelCollider.suspensionDistance = 0.36f;
+            wheelCollider.forceAppPointDistance = 0.12f;
 
             JointSpring spring = wheelCollider.suspensionSpring;
-            spring.spring = 32000f;
-            spring.damper = 6200f;
-            spring.targetPosition = 0.54f;
+            spring.spring = 35000f;
+            spring.damper = 4500f;
+            spring.targetPosition = 0.5f;
             wheelCollider.suspensionSpring = spring;
 
             WheelFrictionCurve forward = wheelCollider.forwardFriction;
@@ -123,7 +125,7 @@ namespace HeavySuvPrototype
 
             WheelFrictionCurve sideways = wheelCollider.sidewaysFriction;
             sideways.extremumSlip = 0.24f;
-            sideways.extremumValue = 1.0f;
+            sideways.extremumValue = 1f;
             sideways.asymptoteSlip = 0.78f;
             sideways.asymptoteValue = 0.55f;
             sideways.stiffness = isFront ? 1.08f : 0.98f;
@@ -192,61 +194,36 @@ namespace HeavySuvPrototype
 
         private static void CreateChassisVisual(Transform parent)
         {
-            if (CreateImportedChassisVisual(parent))
-            {
-                return;
-            }
+            Material bodyMaterial = CreateMaterial(new Color(0.82f, 0.16f, 0.08f));
+            Material darkBodyMaterial = CreateMaterial(new Color(0.23f, 0.045f, 0.025f));
+            Material glassMaterial = CreateMaterial(new Color(0.08f, 0.15f, 0.19f));
 
-            Material bodyMaterial = CreateMaterial(new Color(0.83f, 0.25f, 0.18f));
-            Material cabinMaterial = CreateMaterial(new Color(0.16f, 0.21f, 0.23f));
-
-            GameObject chassis = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            chassis.name = "Simple SUV Body";
-            chassis.transform.SetParent(parent, false);
-            chassis.transform.localPosition = new Vector3(0f, 0.5f, 0.03f);
-            chassis.transform.localScale = new Vector3(2.05f, 0.72f, 3.45f);
-            chassis.GetComponent<Renderer>().sharedMaterial = bodyMaterial;
-            RemoveCollider(chassis);
-
-            GameObject cabin = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            cabin.name = "Simple Cabin";
-            cabin.transform.SetParent(parent, false);
-            cabin.transform.localPosition = new Vector3(0f, 0.98f, -0.25f);
-            cabin.transform.localScale = new Vector3(1.46f, 0.55f, 1.3f);
-            cabin.GetComponent<Renderer>().sharedMaterial = cabinMaterial;
-            RemoveCollider(cabin);
+            CreateBodyPart(parent, "Rally Hatch Lower Body", bodyMaterial, new Vector3(0f, 0.18f, 0f), new Vector3(1.86f, 0.4f, 3.76f));
+            CreateBodyPart(parent, "Rally Hatch Hood", bodyMaterial, new Vector3(0f, 0.44f, 1.2f), new Vector3(1.7f, 0.2f, 1.24f), -4f);
+            CreateBodyPart(parent, "Rally Hatch Roof", bodyMaterial, new Vector3(0f, 0.8f, -0.22f), new Vector3(1.48f, 0.16f, 1.35f));
+            CreateBodyPart(parent, "Rally Hatch Cabin", glassMaterial, new Vector3(0f, 0.62f, -0.08f), new Vector3(1.5f, 0.5f, 1.55f), 3f);
+            CreateBodyPart(parent, "Rally Hatch Rear", bodyMaterial, new Vector3(0f, 0.47f, -1.43f), new Vector3(1.72f, 0.45f, 0.72f), 4f);
+            CreateBodyPart(parent, "Front Bumper", darkBodyMaterial, new Vector3(0f, 0.12f, 1.91f), new Vector3(1.78f, 0.18f, 0.12f));
+            CreateBodyPart(parent, "Rear Bumper", darkBodyMaterial, new Vector3(0f, 0.11f, -1.91f), new Vector3(1.78f, 0.18f, 0.12f));
+            CreateBodyPart(parent, "Rear Spoiler", darkBodyMaterial, new Vector3(0f, 0.71f, -1.73f), new Vector3(1.48f, 0.08f, 0.34f), -6f);
         }
 
-        private static bool CreateImportedChassisVisual(Transform parent)
+        private static void CreateBodyPart(
+            Transform parent,
+            string name,
+            Material material,
+            Vector3 position,
+            Vector3 scale,
+            float pitchDegrees = 0f)
         {
-#if UNITY_EDITOR
-            GameObject source = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(QuaterniusSuvBodyPath);
-            if (source == null)
-            {
-                return false;
-            }
-
-            GameObject model = UnityEngine.Object.Instantiate(source, parent, false);
-            model.name = "Quaternius SUV Body";
-            model.transform.localPosition = new Vector3(0f, -0.48f, 0f);
-            model.transform.localRotation = Quaternion.identity;
-            model.transform.localScale = Vector3.one;
-
-            foreach (Renderer renderer in model.GetComponentsInChildren<Renderer>())
-            {
-                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
-                renderer.receiveShadows = true;
-            }
-
-            foreach (Collider collider in model.GetComponentsInChildren<Collider>())
-            {
-                UnityEngine.Object.DestroyImmediate(collider);
-            }
-
-            return true;
-#else
-            return false;
-#endif
+            GameObject part = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            part.name = name;
+            part.transform.SetParent(parent, false);
+            part.transform.localPosition = position;
+            part.transform.localRotation = Quaternion.Euler(pitchDegrees, 0f, 0f);
+            part.transform.localScale = scale;
+            part.GetComponent<Renderer>().sharedMaterial = material;
+            RemoveCollider(part);
         }
 
         private static void CreateBrakeLights(Transform parent, HeavySuvVehicleController controller)
@@ -256,8 +233,8 @@ namespace HeavySuvPrototype
             Renderer[] renderers = new Renderer[2];
             Light[] lights = new Light[2];
 
-            renderers[0] = CreateBrakeLight(parent, "Left Brake Light", -0.72f, brakeMaterial, out lights[0]);
-            renderers[1] = CreateBrakeLight(parent, "Right Brake Light", 0.72f, brakeMaterial, out lights[1]);
+            renderers[0] = CreateBrakeLight(parent, "Left Brake Light", -0.67f, brakeMaterial, out lights[0]);
+            renderers[1] = CreateBrakeLight(parent, "Right Brake Light", 0.67f, brakeMaterial, out lights[1]);
 
             VehicleLights vehicleLights = parent.gameObject.AddComponent<VehicleLights>();
             vehicleLights.Bind(controller);
@@ -270,8 +247,8 @@ namespace HeavySuvPrototype
             GameObject brakeLight = GameObject.CreatePrimitive(PrimitiveType.Cube);
             brakeLight.name = name;
             brakeLight.transform.SetParent(parent, false);
-            brakeLight.transform.localPosition = new Vector3(x, 0.5f, -1.73f);
-            brakeLight.transform.localScale = new Vector3(0.34f, 0.16f, 0.05f);
+            brakeLight.transform.localPosition = new Vector3(x, 0.44f, -1.82f);
+            brakeLight.transform.localScale = new Vector3(0.34f, 0.14f, 0.05f);
             Renderer renderer = brakeLight.GetComponent<Renderer>();
             renderer.sharedMaterial = material;
             RemoveCollider(brakeLight);

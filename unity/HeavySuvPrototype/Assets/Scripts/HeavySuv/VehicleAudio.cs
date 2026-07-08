@@ -7,178 +7,148 @@ namespace HeavySuvPrototype
     public sealed class VehicleAudio : MonoBehaviour
     {
         public HeavySuvVehicleController controller;
-        public float masterVolume = 0.72f;
+        [Range(0f, 1f)] public float masterVolume = 0.78f;
 
-        private AudioSource engineSource;
-        private AudioSource tireSource;
+        private AudioSource motorLowSource;
+        private AudioSource motorHighSource;
+        private AudioSource rollingSource;
+        private AudioSource spinSource;
+        private AudioSource lockSource;
+
+        public bool UsesExternalClips { get; private set; }
+        public float RollingLevel { get; private set; }
+        public float SpinLevel { get; private set; }
+        public float LockLevel { get; private set; }
+        public float EffectsVolume => masterVolume;
 
         public void Bind(HeavySuvVehicleController vehicleController)
         {
             controller = vehicleController;
         }
 
+        public void SetEffectsVolume(float volume)
+        {
+            masterVolume = Mathf.Clamp01(volume);
+        }
+
         private void Awake()
         {
-            engineSource = GetComponent<AudioSource>();
-            tireSource = gameObject.AddComponent<AudioSource>();
+            motorLowSource = GetComponent<AudioSource>();
+            motorHighSource = gameObject.AddComponent<AudioSource>();
+            rollingSource = gameObject.AddComponent<AudioSource>();
+            spinSource = gameObject.AddComponent<AudioSource>();
+            lockSource = gameObject.AddComponent<AudioSource>();
 
-            ConfigureSource(engineSource, CreateEngineClip(), 0.08f);
-            ConfigureSource(tireSource, CreateTireNoiseClip(), 0f);
+            AudioClip motorLow = Resources.Load<AudioClip>("Audio/ev_motor_low");
+            AudioClip motorHigh = Resources.Load<AudioClip>("Audio/ev_motor_high");
+            AudioClip rolling = Resources.Load<AudioClip>("Audio/tire_rolling");
+            AudioClip squeal = Resources.Load<AudioClip>("Audio/tire_squeal");
+            UsesExternalClips = motorLow != null && motorHigh != null && rolling != null && squeal != null;
+
+            ConfigureSource(motorLowSource, motorLow ?? CreateToneClip("EV Motor Low Fallback", 110f), 0.02f);
+            ConfigureSource(motorHighSource, motorHigh ?? CreateToneClip("EV Motor High Fallback", 310f), 0f);
+            ConfigureSource(rollingSource, rolling ?? CreateNoiseClip("Tire Rolling Fallback", 0.18f), 0f);
+            ConfigureSource(spinSource, squeal ?? CreateNoiseClip("Tire Spin Fallback", 0.4f), 0f);
+            ConfigureSource(lockSource, squeal ?? CreateNoiseClip("Tire Lock Fallback", 0.4f), 0f);
         }
 
         private void OnEnable()
         {
-            if (engineSource != null && !engineSource.isPlaying)
-            {
-                engineSource.Play();
-            }
-
-            if (tireSource != null && !tireSource.isPlaying)
-            {
-                tireSource.Play();
-            }
+            Play(motorLowSource);
+            Play(motorHighSource);
+            Play(rollingSource);
+            Play(spinSource);
+            Play(lockSource);
         }
 
         private void Update()
         {
-            if (controller == null || engineSource == null || tireSource == null)
+            if (controller == null || motorLowSource == null)
             {
                 return;
             }
 
+            float speedKmh = Mathf.Abs(controller.SignedSpeedMetersPerSecond) * 3.6f;
+            float speed01 = Mathf.InverseLerp(0f, controller.motorMaximumSpeedKmh, speedKmh);
             float throttle = controller.LastInput.throttle ? 1f : 0f;
-            float wheelRpm = AverageDrivenWheelRpm();
-            float engineRpm = EstimateEngineRpm(wheelRpm, throttle);
-            float rpmRatio = Mathf.InverseLerp(700f, 6200f, engineRpm);
-            float slip = ComputeSlipLevel();
+            float boost = controller.ConvoyTurbo != null
+                ? Mathf.InverseLerp(1f, controller.ConvoyTurbo.maximumTorqueMultiplier, controller.ConvoyTurbo.TorqueMultiplier)
+                : 0f;
+            bool neutral = controller.selectorMode == DriveSelectorMode.Neutral;
 
-            engineSource.pitch = Mathf.Lerp(0.72f, 2.25f, rpmRatio);
-            engineSource.volume = masterVolume * (0.045f + rpmRatio * 0.075f + throttle * 0.08f);
+            float groundedRatio;
+            float drivenSpin;
+            float lateralSlip;
+            float lockedSlip;
+            MeasureTires(speedKmh, out groundedRatio, out drivenSpin, out lateralSlip, out lockedSlip);
 
-            tireSource.pitch = Mathf.Lerp(0.82f, 1.85f, slip);
-            tireSource.volume = masterVolume * Mathf.Pow(slip, 1.35f) * 0.34f;
+            float loadedMotor = neutral ? 0f : throttle;
+            motorLowSource.pitch = Mathf.Lerp(0.72f, 1.48f, speed01) + boost * 0.12f;
+            motorLowSource.volume = masterVolume * (0.025f + speed01 * 0.055f + loadedMotor * 0.1f + boost * 0.06f);
+
+            motorHighSource.pitch = Mathf.Lerp(0.58f, 2.05f, speed01) + boost * 0.18f;
+            motorHighSource.volume = masterVolume * Mathf.Clamp01(
+                Mathf.InverseLerp(8f, 95f, speedKmh) * 0.1f + loadedMotor * speed01 * 0.13f + boost * 0.12f);
+
+            RollingLevel = groundedRatio * Mathf.InverseLerp(4f, 115f, speedKmh);
+            rollingSource.pitch = Mathf.Lerp(0.72f, 1.45f, Mathf.InverseLerp(0f, 150f, speedKmh));
+            rollingSource.volume = masterVolume * RollingLevel * 0.28f;
+
+            SpinLevel = Mathf.Clamp01(Mathf.Max(drivenSpin, lateralSlip * 0.82f));
+            spinSource.pitch = Mathf.Lerp(0.78f, 1.38f, SpinLevel) + speed01 * 0.08f;
+            spinSource.volume = masterVolume * Mathf.Pow(SpinLevel, 1.25f) * 0.56f;
+
+            LockLevel = Mathf.Clamp01(lockedSlip);
+            lockSource.pitch = Mathf.Lerp(0.62f, 0.92f, Mathf.InverseLerp(8f, 90f, speedKmh));
+            lockSource.volume = masterVolume * Mathf.Pow(LockLevel, 1.15f) * 0.68f;
         }
 
-        private float EstimateEngineRpm(float wheelRpm, float throttle)
+        private void MeasureTires(
+            float speedKmh,
+            out float groundedRatio,
+            out float drivenSpin,
+            out float lateralSlip,
+            out float lockedSlip)
         {
-            float ratio;
-            switch (controller.ActiveGearLabel)
-            {
-                case "R":
-                case "AR":
-                    ratio = 10f;
-                    break;
-                case "2":
-                case "A2":
-                    ratio = 7f;
-                    break;
-                case "N":
-                    ratio = 0f;
-                    break;
-                case "1":
-                case "A1":
-                default:
-                    ratio = 12f;
-                    break;
-            }
+            int wheelCount = 0;
+            int groundedCount = 0;
+            drivenSpin = 0f;
+            lateralSlip = 0f;
+            lockedSlip = 0f;
 
-            float connectedRpm = wheelRpm * ratio * AverageDrivenWheelRadiusScale();
-            float freeRev = throttle * 2400f;
-            return Mathf.Clamp(780f + Mathf.Max(connectedRpm, freeRev), 700f, 6200f);
-        }
-
-        private float AverageDrivenWheelRpm()
-        {
-            if (controller.wheels == null)
+            if (controller.wheels != null)
             {
-                return 0f;
-            }
-
-            float sum = 0f;
-            int count = 0;
-            foreach (HeavySuvVehicleController.Wheel wheel in controller.wheels)
-            {
-                if (wheel?.collider == null)
+                foreach (HeavySuvVehicleController.Wheel wheel in controller.wheels)
                 {
-                    continue;
-                }
+                    if (wheel?.collider == null)
+                    {
+                        continue;
+                    }
 
-                bool driven = controller.driveMode == DriveMode.Awd || !wheel.isFront;
-                if (!driven)
-                {
-                    continue;
-                }
+                    wheelCount += 1;
+                    if (!wheel.collider.GetGroundHit(out WheelHit hit))
+                    {
+                        continue;
+                    }
 
-                sum += Mathf.Abs(wheel.collider.rpm);
-                count += 1;
+                    groundedCount += 1;
+                    bool driven = controller.driveMode == DriveMode.Awd || !wheel.isFront;
+                    if (driven)
+                    {
+                        drivenSpin = Mathf.Max(drivenSpin, Mathf.InverseLerp(0.22f, 1.15f, Mathf.Abs(hit.forwardSlip)));
+                    }
+
+                    lateralSlip = Mathf.Max(lateralSlip, Mathf.InverseLerp(0.2f, 0.85f, Mathf.Abs(hit.sidewaysSlip)));
+                    bool brakeApplied = wheel.collider.brakeTorque > 100f;
+                    bool nearlyStoppedWheel = Mathf.Abs(wheel.collider.rpm) < 18f;
+                    if (brakeApplied && nearlyStoppedWheel)
+                    {
+                        lockedSlip = Mathf.Max(lockedSlip, Mathf.InverseLerp(9f, 45f, speedKmh));
+                    }
+                }
             }
 
-            return count > 0 ? sum / count : 0f;
-        }
-
-        private float AverageDrivenWheelRadiusScale()
-        {
-            if (controller.wheels == null)
-            {
-                return 1f;
-            }
-
-            float sum = 0f;
-            int count = 0;
-            foreach (HeavySuvVehicleController.Wheel wheel in controller.wheels)
-            {
-                if (wheel?.collider == null)
-                {
-                    continue;
-                }
-
-                bool driven = controller.driveMode == DriveMode.Awd || !wheel.isFront;
-                if (!driven)
-                {
-                    continue;
-                }
-
-                sum += wheel.collider.radius;
-                count += 1;
-            }
-
-            float averageRadius = count > 0 ? sum / count : controller.drivetrainReferenceWheelRadius;
-            return averageRadius / Mathf.Max(controller.drivetrainReferenceWheelRadius, 0.001f);
-        }
-
-        private float ComputeSlipLevel()
-        {
-            if (controller.wheels == null)
-            {
-                return 0f;
-            }
-
-            float roadSpeed = Mathf.Abs(controller.SignedSpeedMetersPerSecond);
-            float maximum = 0f;
-            foreach (HeavySuvVehicleController.Wheel wheel in controller.wheels)
-            {
-                if (wheel?.collider == null || !wheel.collider.GetGroundHit(out WheelHit hit))
-                {
-                    continue;
-                }
-
-                float wheelSurfaceSpeed =
-                    Mathf.Abs(wheel.collider.rpm) * Mathf.PI * 2f * wheel.collider.radius / 60f;
-                float mismatch =
-                    Mathf.Abs(wheelSurfaceSpeed - roadSpeed) / Mathf.Max(roadSpeed, wheelSurfaceSpeed, 1.4f);
-                float spinSlip =
-                    SmoothStep(0.34f, 1.4f, Mathf.Abs(hit.forwardSlip)) *
-                    SmoothStep(1.2f, 4.5f, Mathf.Max(roadSpeed, wheelSurfaceSpeed));
-                float lateralSlip = SmoothStep(0.26f, 0.86f, Mathf.Abs(hit.sidewaysSlip));
-                float speedSlip =
-                    SmoothStep(0.2f, 0.72f, mismatch) *
-                    SmoothStep(1.2f, 4.5f, Mathf.Max(roadSpeed, wheelSurfaceSpeed));
-                float handbrakeSlip =
-                    controller.HandbrakeActive && !wheel.isFront ? SmoothStep(1.1f, 3.8f, roadSpeed) : 0f;
-                maximum = Mathf.Max(maximum, spinSlip, lateralSlip, speedSlip, handbrakeSlip);
-            }
-
-            return Mathf.Clamp01(maximum);
+            groundedRatio = wheelCount > 0 ? (float)groundedCount / wheelCount : 0f;
         }
 
         private static void ConfigureSource(AudioSource source, AudioClip clip, float volume)
@@ -187,52 +157,48 @@ namespace HeavySuvPrototype
             source.loop = true;
             source.playOnAwake = false;
             source.spatialBlend = 0f;
+            source.dopplerLevel = 0f;
             source.volume = volume;
         }
 
-        private static AudioClip CreateEngineClip()
+        private static void Play(AudioSource source)
+        {
+            if (source != null && source.clip != null && !source.isPlaying)
+            {
+                source.Play();
+            }
+        }
+
+        private static AudioClip CreateToneClip(string name, float frequency)
         {
             const int sampleRate = 22050;
-            const int samples = sampleRate;
-            float[] data = new float[samples];
-            for (int i = 0; i < samples; i += 1)
+            float[] samples = new float[sampleRate];
+            for (int index = 0; index < samples.Length; index += 1)
             {
-                float t = i / (float)sampleRate;
-                float phase = (t * 82f) % 1f;
-                float saw = phase * 2f - 1f;
-                float harmonic = Mathf.Sin(t * 82f * Mathf.PI * 4f) * 0.32f;
-                data[i] = Mathf.Clamp((saw * 0.46f + harmonic) * 0.32f, -1f, 1f);
+                float phase = index / (float)sampleRate;
+                samples[index] = Mathf.Sin(phase * frequency * Mathf.PI * 2f) * 0.18f;
             }
 
-            AudioClip clip = AudioClip.Create("Procedural Engine Loop", samples, 1, sampleRate, false);
-            clip.SetData(data, 0);
+            AudioClip clip = AudioClip.Create(name, samples.Length, 1, sampleRate, false);
+            clip.SetData(samples, 0);
             return clip;
         }
 
-        private static AudioClip CreateTireNoiseClip()
+        private static AudioClip CreateNoiseClip(string name, float amplitude)
         {
             const int sampleRate = 22050;
-            const int samples = sampleRate;
-            float[] data = new float[samples];
-            System.Random random = new System.Random(19);
-            float previous = 0f;
-            for (int i = 0; i < samples; i += 1)
+            float[] samples = new float[sampleRate];
+            System.Random random = new System.Random(name.GetHashCode());
+            float filtered = 0f;
+            for (int index = 0; index < samples.Length; index += 1)
             {
-                float noise = (float)(random.NextDouble() * 2.0 - 1.0);
-                float highPassed = noise - previous * 0.72f;
-                previous = noise;
-                data[i] = Mathf.Clamp(highPassed * 0.28f, -1f, 1f);
+                filtered = Mathf.Lerp(filtered, (float)(random.NextDouble() * 2d - 1d), 0.12f);
+                samples[index] = filtered * amplitude;
             }
 
-            AudioClip clip = AudioClip.Create("Procedural Tire Squeal Loop", samples, 1, sampleRate, false);
-            clip.SetData(data, 0);
+            AudioClip clip = AudioClip.Create(name, samples.Length, 1, sampleRate, false);
+            clip.SetData(samples, 0);
             return clip;
-        }
-
-        private static float SmoothStep(float edge0, float edge1, float value)
-        {
-            float t = Mathf.Clamp01((value - edge0) / Mathf.Max(edge1 - edge0, 0.0001f));
-            return t * t * (3f - 2f * t);
         }
     }
 }

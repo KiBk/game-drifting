@@ -8,6 +8,7 @@ namespace HeavySuvPrototype
         public bool steerLeft;
         public bool steerRight;
         public bool handbrake;
+        public bool turbo;
         public bool toggleDriveMode;
 
         public static VehicleInputState None => new VehicleInputState();

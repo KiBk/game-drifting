@@ -55,7 +55,8 @@ namespace HeavySuvPrototype.Tests
             bool brake = false,
             bool steerLeft = false,
             bool steerRight = false,
-            bool handbrake = false)
+            bool handbrake = false,
+            bool turbo = false)
         {
             return new VehicleInputState
             {
@@ -63,7 +64,8 @@ namespace HeavySuvPrototype.Tests
                 brake = brake,
                 steerLeft = steerLeft,
                 steerRight = steerRight,
-                handbrake = handbrake
+                handbrake = handbrake,
+                turbo = turbo
             };
         }
 

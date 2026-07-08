@@ -56,15 +56,27 @@ namespace HeavySuvPrototype
             };
 
             VehicleTelemetrySample telemetry = controller.CaptureTelemetry();
+            ConvoyTurboController turbo = controller.ConvoyTurbo;
             builder.Clear();
-            builder.AppendLine("Unity WheelCollider SUV");
+            builder.AppendLine("Rally Car - Convoy Prototype");
             builder.Append("Speed: ").Append(Mathf.RoundToInt(telemetry.speedKmh)).AppendLine(" km/h");
             builder.Append("Signed: ").Append(telemetry.signedSpeedMetersPerSecond.ToString("0.0")).AppendLine(" m/s");
             builder.Append("Heading: ").Append(telemetry.headingDegrees.ToString("0.0")).AppendLine(" deg");
+            builder.Append("Slip angle: ").Append(telemetry.slipAngleDegrees.ToString("0.0")).AppendLine(" deg");
+            builder.Append("Countersteer: ").Append((telemetry.countersteerAssistInput * 100f).ToString("0")).AppendLine("%");
             builder.Append("Position: ").Append(telemetry.position.ToString("F2")).AppendLine();
             builder.Append("Drive: ").AppendLine(telemetry.driveMode == DriveMode.Awd ? "AWD" : "RWD");
-            builder.Append("Gear: ").AppendLine(telemetry.activeGearLabel);
-            builder.AppendLine("Keys: arrows drive, Space handbrake, D toggles AWD/RWD");
+            builder.Append("Selector: ").AppendLine(telemetry.activeSelectorLabel);
+            builder.Append("Traction delivery: ").Append((controller.TractionDelivery * 100f).ToString("0")).AppendLine("%");
+            if (turbo != null)
+            {
+                builder.Append("Boost: x")
+                    .Append(turbo.TorqueMultiplier.ToString("0.00"))
+                    .Append(turbo.IsActive ? " ACTIVE" : " ready")
+                    .AppendLine();
+            }
+
+            builder.AppendLine("Keys: arrows drive, Space handbrake, Shift boost, D AWD/RWD");
             for (int i = 0; i < telemetry.wheels.Length; i += 1)
             {
                 WheelTelemetry wheel = telemetry.wheels[i];
@@ -80,28 +92,27 @@ namespace HeavySuvPrototype
                     .AppendLine();
             }
 
-            GUI.Box(new Rect(16f, 16f, 360f, 272f), builder.ToString(), style);
+            GUI.Box(new Rect(16f, 16f, 390f, 346f), builder.ToString(), style);
             DrawControlPanel(telemetry);
         }
 
         private void DrawControlPanel(VehicleTelemetrySample telemetry)
         {
             const float panelWidth = 292f;
-            Rect panel = new Rect(Screen.width - panelWidth - 16f, 16f, panelWidth, 184f);
+            Rect panel = new Rect(Screen.width - panelWidth - 16f, 16f, panelWidth, 292f);
             GUI.Box(panel, string.Empty, controlStyle);
 
             GUILayout.BeginArea(new Rect(panel.x + 14f, panel.y + 12f, panel.width - 28f, panel.height - 24f));
-            GUILayout.Label("Gearbox", labelStyle);
+            GUILayout.Label("Drive selector", labelStyle);
             GUILayout.BeginHorizontal();
-            DrawGearButton("R", GearboxMode.Reverse);
-            DrawGearButton("N", GearboxMode.Neutral);
-            DrawGearButton("1", GearboxMode.First);
-            DrawGearButton("2", GearboxMode.Second);
-            DrawGearButton("A", GearboxMode.Auto);
+            DrawSelectorButton("R", DriveSelectorMode.Reverse);
+            DrawSelectorButton("N", DriveSelectorMode.Neutral);
+            DrawSelectorButton("D", DriveSelectorMode.Drive);
+            DrawSelectorButton("A", DriveSelectorMode.Auto);
             GUILayout.EndHorizontal();
 
             GUILayout.Space(10f);
-            GUILayout.Label($"Power: {Mathf.RoundToInt(telemetry.engineTorque)}", labelStyle);
+            GUILayout.Label($"Motor torque: {Mathf.RoundToInt(telemetry.motorTorque)}", labelStyle);
 
             GUILayout.Space(8f);
             GUILayout.BeginHorizontal();
@@ -110,16 +121,36 @@ namespace HeavySuvPrototype
             GUILayout.EndHorizontal();
 
             GUILayout.Space(8f);
-            GUILayout.Label($"Mode: {(telemetry.driveMode == DriveMode.Awd ? "AWD" : "RWD")}   Active: {telemetry.activeGearLabel}", labelStyle);
+            GUILayout.Label($"Mode: {(telemetry.driveMode == DriveMode.Awd ? "AWD" : "RWD")}   Selector: {telemetry.activeSelectorLabel}", labelStyle);
+            controller.countersteerAssistEnabled = GUILayout.Toggle(
+                controller.countersteerAssistEnabled,
+                "Keyboard countersteer assist");
+
+            ConvoyTurboController turbo = controller.ConvoyTurbo;
+            if (turbo != null)
+            {
+                GUILayout.Label(
+                    $"Shift boost: {(turbo.IsActive ? $"x{turbo.TorqueMultiplier:0.00}" : "ready")}",
+                    labelStyle);
+            }
+
+            VehicleAudio vehicleAudio = controller.GetComponent<VehicleAudio>();
+            if (vehicleAudio != null)
+            {
+                GUILayout.Space(6f);
+                GUILayout.Label($"Sound effects: {Mathf.RoundToInt(vehicleAudio.EffectsVolume * 100f)}%", labelStyle);
+                vehicleAudio.SetEffectsVolume(GUILayout.HorizontalSlider(vehicleAudio.EffectsVolume, 0f, 1f));
+            }
+
             GUILayout.EndArea();
         }
 
-        private void DrawGearButton(string label, GearboxMode mode)
+        private void DrawSelectorButton(string label, DriveSelectorMode mode)
         {
-            GUIStyle gearStyle = controller.gearboxMode == mode ? selectedButtonStyle : buttonStyle;
-            if (GUILayout.Button(label, gearStyle, GUILayout.Width(42f)))
+            GUIStyle selectorStyle = controller.selectorMode == mode ? selectedButtonStyle : buttonStyle;
+            if (GUILayout.Button(label, selectorStyle, GUILayout.Width(52f)))
             {
-                controller.SetGearboxMode(mode);
+                controller.SetSelectorMode(mode);
             }
         }
 

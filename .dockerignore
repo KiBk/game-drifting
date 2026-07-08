@@ -1,0 +1,9 @@
+.git
+.github
+node_modules
+dist
+physics-traces
+unity
+*.log
+*-results.xml
+.DS_Store
