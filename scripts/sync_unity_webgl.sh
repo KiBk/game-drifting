@@ -13,6 +13,8 @@ fi
 
 rm -rf "${deploy_dir}"
 mkdir -p "${deploy_dir}"
-cp -R "${build_dir}/." "${deploy_dir}/"
+rsync -a \
+  --exclude='*_BurstDebugInformation_DoNotShip/' \
+  "${build_dir}/" "${deploy_dir}/"
 
 echo "Synced Unity WebGL build to ${deploy_dir}"

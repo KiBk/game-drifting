@@ -1,13 +1,10 @@
-using System.Text;
 using UnityEngine;
 
 namespace HeavySuvPrototype
 {
     public sealed class VehicleHud : MonoBehaviour
     {
-        private readonly StringBuilder builder = new StringBuilder(512);
         [SerializeField] private HeavySuvVehicleController controller;
-        private GUIStyle style;
         private GUIStyle controlStyle;
         private GUIStyle buttonStyle;
         private GUIStyle selectedButtonStyle;
@@ -25,13 +22,6 @@ namespace HeavySuvPrototype
                 return;
             }
 
-            style ??= new GUIStyle(GUI.skin.box)
-            {
-                alignment = TextAnchor.UpperLeft,
-                fontSize = 16,
-                normal = { textColor = Color.white },
-                padding = new RectOffset(14, 14, 12, 12)
-            };
             controlStyle ??= new GUIStyle(GUI.skin.box)
             {
                 alignment = TextAnchor.UpperLeft,
@@ -56,50 +46,13 @@ namespace HeavySuvPrototype
             };
 
             VehicleTelemetrySample telemetry = controller.CaptureTelemetry();
-            ConvoyTurboController turbo = controller.ConvoyTurbo;
-            builder.Clear();
-            builder.AppendLine("Rally Car - Convoy Prototype");
-            builder.Append("Speed: ").Append(Mathf.RoundToInt(telemetry.speedKmh)).AppendLine(" km/h");
-            builder.Append("Signed: ").Append(telemetry.signedSpeedMetersPerSecond.ToString("0.0")).AppendLine(" m/s");
-            builder.Append("Heading: ").Append(telemetry.headingDegrees.ToString("0.0")).AppendLine(" deg");
-            builder.Append("Slip angle: ").Append(telemetry.slipAngleDegrees.ToString("0.0")).AppendLine(" deg");
-            builder.Append("Countersteer: ").Append((telemetry.countersteerAssistInput * 100f).ToString("0")).AppendLine("%");
-            builder.Append("Position: ").Append(telemetry.position.ToString("F2")).AppendLine();
-            builder.Append("Drive: ").AppendLine(telemetry.driveMode == DriveMode.Awd ? "AWD" : "RWD");
-            builder.Append("Selector: ").AppendLine(telemetry.activeSelectorLabel);
-            builder.Append("Traction delivery: ").Append((controller.TractionDelivery * 100f).ToString("0")).AppendLine("%");
-            if (turbo != null)
-            {
-                builder.Append("Boost: x")
-                    .Append(turbo.TorqueMultiplier.ToString("0.00"))
-                    .Append(turbo.IsActive ? " ACTIVE" : " ready")
-                    .AppendLine();
-            }
-
-            builder.AppendLine("Keys: arrows drive, Space handbrake, Shift boost, D AWD/RWD");
-            for (int i = 0; i < telemetry.wheels.Length; i += 1)
-            {
-                WheelTelemetry wheel = telemetry.wheels[i];
-                builder.Append(wheel.name)
-                    .Append(": ")
-                    .Append(wheel.grounded ? "ground " : "air ")
-                    .Append("rpm ")
-                    .Append(wheel.rpm.ToString("0"))
-                    .Append(" slip ")
-                    .Append(wheel.forwardSlip.ToString("0.00"))
-                    .Append("/")
-                    .Append(wheel.sidewaysSlip.ToString("0.00"))
-                    .AppendLine();
-            }
-
-            GUI.Box(new Rect(16f, 16f, 390f, 346f), builder.ToString(), style);
             DrawControlPanel(telemetry);
         }
 
         private void DrawControlPanel(VehicleTelemetrySample telemetry)
         {
             const float panelWidth = 292f;
-            Rect panel = new Rect(Screen.width - panelWidth - 16f, 16f, panelWidth, 292f);
+            Rect panel = new Rect(Screen.width - panelWidth - 16f, 16f, panelWidth, 318f);
             GUI.Box(panel, string.Empty, controlStyle);
 
             GUILayout.BeginArea(new Rect(panel.x + 14f, panel.y + 12f, panel.width - 28f, panel.height - 24f));
@@ -111,9 +64,6 @@ namespace HeavySuvPrototype
             DrawSelectorButton("A", DriveSelectorMode.Auto);
             GUILayout.EndHorizontal();
 
-            GUILayout.Space(10f);
-            GUILayout.Label($"Motor torque: {Mathf.RoundToInt(telemetry.motorTorque)}", labelStyle);
-
             GUILayout.Space(8f);
             GUILayout.BeginHorizontal();
             DrawDriveButton("AWD", DriveMode.Awd);
@@ -122,9 +72,7 @@ namespace HeavySuvPrototype
 
             GUILayout.Space(8f);
             GUILayout.Label($"Mode: {(telemetry.driveMode == DriveMode.Awd ? "AWD" : "RWD")}   Selector: {telemetry.activeSelectorLabel}", labelStyle);
-            controller.countersteerAssistEnabled = GUILayout.Toggle(
-                controller.countersteerAssistEnabled,
-                "Keyboard countersteer assist");
+            GUILayout.Label($"ABS: {(controller.AbsActive ? "ACTIVE" : "On")}", labelStyle);
 
             ConvoyTurboController turbo = controller.ConvoyTurbo;
             if (turbo != null)
@@ -140,6 +88,12 @@ namespace HeavySuvPrototype
                 GUILayout.Space(6f);
                 GUILayout.Label($"Sound effects: {Mathf.RoundToInt(vehicleAudio.EffectsVolume * 100f)}%", labelStyle);
                 vehicleAudio.SetEffectsVolume(GUILayout.HorizontalSlider(vehicleAudio.EffectsVolume, 0f, 1f));
+            }
+
+            GUILayout.Space(8f);
+            if (GUILayout.Button("Respawn at start", buttonStyle))
+            {
+                controller.RespawnAtStart();
             }
 
             GUILayout.EndArea();

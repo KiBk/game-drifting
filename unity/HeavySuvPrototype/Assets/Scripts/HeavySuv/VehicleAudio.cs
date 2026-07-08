@@ -8,6 +8,8 @@ namespace HeavySuvPrototype
     {
         public HeavySuvVehicleController controller;
         [Range(0f, 1f)] public float masterVolume = 0.78f;
+        [Range(0f, 1f)] public float tireSquealVolume = 0.28f;
+        [Range(0f, 1f)] public float tireLockVolume = 0.32f;
 
         private AudioSource motorLowSource;
         private AudioSource motorHighSource;
@@ -96,11 +98,11 @@ namespace HeavySuvPrototype
 
             SpinLevel = Mathf.Clamp01(Mathf.Max(drivenSpin, lateralSlip * 0.82f));
             spinSource.pitch = Mathf.Lerp(0.78f, 1.38f, SpinLevel) + speed01 * 0.08f;
-            spinSource.volume = masterVolume * Mathf.Pow(SpinLevel, 1.25f) * 0.56f;
+            spinSource.volume = masterVolume * Mathf.Pow(SpinLevel, 1.25f) * tireSquealVolume;
 
             LockLevel = Mathf.Clamp01(lockedSlip);
             lockSource.pitch = Mathf.Lerp(0.62f, 0.92f, Mathf.InverseLerp(8f, 90f, speedKmh));
-            lockSource.volume = masterVolume * Mathf.Pow(LockLevel, 1.15f) * 0.68f;
+            lockSource.volume = masterVolume * Mathf.Pow(LockLevel, 1.15f) * tireLockVolume;
         }
 
         private void MeasureTires(

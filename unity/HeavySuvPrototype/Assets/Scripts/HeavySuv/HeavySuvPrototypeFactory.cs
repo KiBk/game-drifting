@@ -11,8 +11,8 @@ namespace HeavySuvPrototype
         {
             Physics.gravity = new Vector3(0f, -9.81f, 0f);
 
-            CreateGround();
-            HeavySuvVehicleController vehicle = CreateVehicle();
+            CreateEnvironment();
+            HeavySuvVehicleController vehicle = CreateVehicle(Vector3.zero);
 
             if (includeCameraAndHud)
             {
@@ -23,8 +23,9 @@ namespace HeavySuvPrototype
             return vehicle;
         }
 
-        private static void CreateGround()
+        public static void CreateEnvironment()
         {
+            Physics.gravity = new Vector3(0f, -9.81f, 0f);
             Material groundMaterial = new Material(Shader.Find("Standard"))
             {
                 color = new Color(0.32f, 0.42f, 0.39f)
@@ -56,10 +57,10 @@ namespace HeavySuvPrototype
             line.GetComponent<Renderer>().sharedMaterial = material;
         }
 
-        private static HeavySuvVehicleController CreateVehicle()
+        public static HeavySuvVehicleController CreateVehicle(Vector3 groundPosition)
         {
             GameObject root = new GameObject("Rally Car");
-            root.transform.position = new Vector3(0f, 0.52f, 0f);
+            root.transform.position = groundPosition + new Vector3(0f, 0.52f, 0f);
             root.transform.rotation = Quaternion.identity;
 
             Rigidbody body = root.AddComponent<Rigidbody>();
@@ -262,7 +263,7 @@ namespace HeavySuvPrototype
             return renderer;
         }
 
-        private static void CreateCamera(Transform target)
+        public static ChaseCamera CreateCamera(Transform target)
         {
             GameObject cameraObject = new GameObject("Chase Camera");
             Camera camera = cameraObject.AddComponent<Camera>();
@@ -272,6 +273,7 @@ namespace HeavySuvPrototype
             cameraObject.AddComponent<AudioListener>();
             ChaseCamera chaseCamera = cameraObject.AddComponent<ChaseCamera>();
             chaseCamera.target = target;
+            return chaseCamera;
         }
 
         private static Material CreateMaterial(Color color)

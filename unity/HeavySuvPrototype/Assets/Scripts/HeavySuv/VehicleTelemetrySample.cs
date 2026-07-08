@@ -10,7 +10,6 @@ namespace HeavySuvPrototype
         public float speedKmh;
         public float headingDegrees;
         public float slipAngleDegrees;
-        public float countersteerAssistInput;
         public float pitchDegrees;
         public float rollDegrees;
         public DriveMode driveMode;

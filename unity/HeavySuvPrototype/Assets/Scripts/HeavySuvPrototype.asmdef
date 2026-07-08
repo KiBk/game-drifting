@@ -1,7 +1,12 @@
 {
   "name": "HeavySuvPrototype",
   "rootNamespace": "HeavySuvPrototype",
-  "references": [],
+  "references": [
+    "Unity.Netcode.Runtime",
+    "Unity.Services.Authentication",
+    "Unity.Services.Core",
+    "Unity.Services.Multiplayer"
+  ],
   "includePlatforms": [],
   "excludePlatforms": [],
   "allowUnsafeCode": false,

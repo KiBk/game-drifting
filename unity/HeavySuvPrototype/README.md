@@ -19,12 +19,16 @@ asset churn while the gameplay-facing prototype moves to the rally format.
 - `R`, `N`, `D`, and `A` remain as direction/drive selectors; there are no gears.
 - Shift directly activates traction-aware 1.65x boost while held.
 - `D` toggles AWD/RWD.
-- Slip-angle and yaw-rate countersteer assistance makes keyboard drifting
-  catchable; it can be disabled from the HUD for raw steering.
+- Manual steering without countersteer assistance.
+- Per-wheel ABS reduces service-brake pressure when a tire begins locking;
+  the rear handbrake remains unassisted for drift initiation.
 - Layered open-source electric-motor, tire-rolling, wheelspin, and locked-tire audio.
-- HUD sound-effects volume control.
+- HUD sound-effects volume control and a button to respawn at the assigned start.
 - Lower rally-car body and center of mass for sustained-corner rollover resistance.
-- Chase camera and telemetry HUD with selector and boost status.
+- Automatic Unity Sessions/Distributed Authority connection with two owner-driven network cars.
+- Six-person FIFO spectator queue with follow-camera switching.
+- Random synchronized car colors and ghosted car-to-car collisions.
+- Chase camera and compact control HUD with selector, ABS, and boost status.
 - PlayMode coordinate tests for steering signs, straight driving, reverse,
   settling, controlled oversteer, rollover resistance, and turbo behavior.
 
@@ -32,6 +36,14 @@ See `CONVOY_RALLY.md` for the planned two-player stage format and the future
 multiplayer progress contract.
 
 Audio sources and licenses are listed in `Assets/Resources/Audio/CREDITS.md`.
+Unity Cloud linking instructions are in `UGS_SETUP.md`.
+
+## Multiplayer
+
+- Packages: Netcode for GameObjects `2.13.0` and Multiplayer Services `2.2.4`.
+- Session: `convoy-rally-public-v1`, eight total participants, two drivers.
+- Web builds use Unity Distributed Authority over secure WebSockets because WebGL cannot act as a Unity Transport server.
+- Without a linked Unity Cloud project the build runs a local one-player fallback.
 
 ## Batch Commands
 

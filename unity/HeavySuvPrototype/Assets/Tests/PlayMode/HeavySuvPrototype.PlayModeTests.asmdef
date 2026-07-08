@@ -2,7 +2,8 @@
   "name": "HeavySuvPrototype.PlayModeTests",
   "rootNamespace": "HeavySuvPrototype.Tests",
   "references": [
-    "HeavySuvPrototype"
+    "HeavySuvPrototype",
+    "Unity.Netcode.Runtime"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],

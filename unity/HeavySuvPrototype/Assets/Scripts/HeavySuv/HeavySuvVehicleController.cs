@@ -45,20 +45,18 @@ namespace HeavySuvPrototype
         public float rwdGripReductionStartSlip = 0.08f;
         public float rwdGripReductionEndSlip = 0.55f;
 
+        [Header("Braking")]
+        public bool absEnabled = true;
+        public float absMinimumSpeedKmh = 7f;
+        public float absSlipStart = 0.18f;
+        public float absSlipEnd = 0.55f;
+        [Range(0f, 1f)] public float absMinimumBrakeDelivery = 0.18f;
+
         [Header("Steering")]
         public float maxSteerAngle = 23f;
         public float steerFadeStartKmh = 8f;
         public float steerFadeEndKmh = 72f;
         public float highSpeedSteerFactor = 0.22f;
-        public bool countersteerAssistEnabled = true;
-        public float countersteerMinimumSpeedKmh = 18f;
-        public float countersteerStartAngleDegrees = 6f;
-        public float countersteerFullAngleDegrees = 24f;
-        public float countersteerStartYawRateDegrees = 12f;
-        public float countersteerFullYawRateDegrees = 65f;
-        [Range(0f, 1f)] public float maximumCountersteerInput = 0.75f;
-        [Range(0f, 1f)] public float countersteerManualRetention = 0.2f;
-        public float countersteerResponsePerSecond = 6.5f;
 
         [Header("Wheels")]
         public Wheel[] wheels = new Wheel[4];
@@ -68,7 +66,9 @@ namespace HeavySuvPrototype
         private VehicleInputState lastInput;
         private bool previousDriveToggle;
         private ConvoyTurboController convoyTurbo;
-        private float countersteerAssistInput;
+        private Vector3 respawnPosition;
+        private Quaternion respawnRotation;
+        private bool respawnPoseSet;
 
         public Rigidbody Body
         {
@@ -88,12 +88,13 @@ namespace HeavySuvPrototype
         public ConvoyTurboController ConvoyTurbo => convoyTurbo;
         public float LastDrivenWheelSlip { get; private set; }
         public float TractionDelivery { get; private set; } = 1f;
-        public float CountersteerAssistInput => countersteerAssistInput;
         public float VehicleSlipAngleDegrees { get; private set; }
+        public bool AbsActive { get; private set; }
 
         private void Awake()
         {
             EnsureInitialized();
+            SetRespawnPose(transform.position, transform.rotation);
         }
 
         public void EnsureInitialized()
@@ -172,6 +173,44 @@ namespace HeavySuvPrototype
             driveMode = driveMode == DriveMode.Awd ? DriveMode.Rwd : DriveMode.Awd;
         }
 
+        public void SetRespawnPose(Vector3 position, Quaternion rotation)
+        {
+            respawnPosition = position;
+            respawnRotation = rotation;
+            respawnPoseSet = true;
+        }
+
+        public void RespawnAtStart()
+        {
+            EnsureInitialized();
+            if (body == null || !respawnPoseSet)
+            {
+                return;
+            }
+
+            body.position = respawnPosition;
+            body.rotation = respawnRotation;
+            body.linearVelocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
+            scriptedInput = VehicleInputState.None;
+            lastInput = VehicleInputState.None;
+            AbsActive = false;
+            foreach (Wheel wheel in wheels)
+            {
+                if (wheel?.collider == null)
+                {
+                    continue;
+                }
+
+                wheel.collider.motorTorque = 0f;
+                wheel.collider.brakeTorque = 0f;
+                wheel.collider.steerAngle = 0f;
+            }
+
+            body.WakeUp();
+            Physics.SyncTransforms();
+        }
+
         public VehicleTelemetrySample CaptureTelemetry()
         {
             EnsureInitialized();
@@ -195,7 +234,6 @@ namespace HeavySuvPrototype
                 speedKmh = Mathf.Abs(localVelocity.z) * 3.6f,
                 headingDegrees = Mathf.Atan2(transform.forward.x, transform.forward.z) * Mathf.Rad2Deg,
                 slipAngleDegrees = VehicleSlipAngleDegrees,
-                countersteerAssistInput = CountersteerAssistInput,
                 pitchDegrees = euler.x,
                 rollDegrees = euler.z,
                 driveMode = driveMode,
@@ -230,12 +268,8 @@ namespace HeavySuvPrototype
             lastInput = input;
             float signedSpeed = Vector3.Dot(transform.forward, body.linearVelocity);
             float speedKmh = Mathf.Abs(signedSpeed) * 3.6f;
-            float manualSteerInput = (input.steerRight ? 1f : 0f) - (input.steerLeft ? 1f : 0f);
-            float steerInput = ComputeAssistedSteerInput(
-                manualSteerInput,
-                signedSpeed,
-                speedKmh,
-                input.handbrake);
+            float steerInput = (input.steerRight ? 1f : 0f) - (input.steerLeft ? 1f : 0f);
+            VehicleSlipAngleDegrees = ComputeSignedSlipAngleDegrees();
             float steeringFade = Mathf.Lerp(
                 1f,
                 highSpeedSteerFactor,
@@ -257,6 +291,7 @@ namespace HeavySuvPrototype
             ReverseDriveActive = drive.reverseDriving;
             HandbrakeActive = input.handbrake;
             ActiveSelectorLabel = drive.activeSelectorLabel;
+            AbsActive = false;
 
             foreach (Wheel wheel in wheels)
             {
@@ -271,57 +306,12 @@ namespace HeavySuvPrototype
                     IsDriven(wheel) && !(input.handbrake && !wheel.isFront)
                         ? GetWheelTorque(wheel, drive.motorTorque) * wheelGearingScale
                         : 0f;
-                wheel.collider.brakeTorque = ComputeBrakeTorque(wheel, drive.serviceBraking, input.handbrake);
+                wheel.collider.brakeTorque = ComputeBrakeTorque(
+                    wheel,
+                    drive.serviceBraking,
+                    input.handbrake,
+                    speedKmh);
             }
-        }
-
-        private float ComputeAssistedSteerInput(
-            float manualSteerInput,
-            float signedSpeed,
-            float speedKmh,
-            bool handbrake)
-        {
-            VehicleSlipAngleDegrees = ComputeSignedSlipAngleDegrees();
-            if (handbrake)
-            {
-                countersteerAssistInput = 0f;
-                return manualSteerInput;
-            }
-
-            float targetAssist = 0f;
-            if (countersteerAssistEnabled && signedSpeed > 0f && speedKmh >= countersteerMinimumSpeedKmh)
-            {
-                float slipStrength = Mathf.InverseLerp(
-                    countersteerStartAngleDegrees,
-                    countersteerFullAngleDegrees,
-                    Mathf.Abs(VehicleSlipAngleDegrees));
-                float yawRateDegrees = body.angularVelocity.y * Mathf.Rad2Deg;
-                float yawStrength = Mathf.InverseLerp(
-                    countersteerStartYawRateDegrees,
-                    countersteerFullYawRateDegrees,
-                    Mathf.Abs(yawRateDegrees));
-                if (yawStrength >= slipStrength)
-                {
-                    targetAssist = -Mathf.Sign(yawRateDegrees) * yawStrength * maximumCountersteerInput;
-                }
-                else
-                {
-                    targetAssist = -Mathf.Sign(VehicleSlipAngleDegrees) * slipStrength * maximumCountersteerInput;
-                }
-            }
-
-            countersteerAssistInput = Mathf.MoveTowards(
-                countersteerAssistInput,
-                targetAssist,
-                countersteerResponsePerSecond * Time.fixedDeltaTime);
-            float normalizedAssist = maximumCountersteerInput > 0.001f
-                ? Mathf.Clamp01(Mathf.Abs(countersteerAssistInput) / maximumCountersteerInput)
-                : 0f;
-            float retainedManualInput = manualSteerInput * Mathf.Lerp(
-                1f,
-                countersteerManualRetention,
-                normalizedAssist);
-            return Mathf.Clamp(retainedManualInput + countersteerAssistInput, -1f, 1f);
         }
 
         private float ComputeSignedSlipAngleDegrees()
@@ -416,9 +406,27 @@ namespace HeavySuvPrototype
             }
         }
 
-        private float ComputeBrakeTorque(Wheel wheel, bool serviceBraking, bool handbrake)
+        public float EvaluateAbsBrakeMultiplier(float speedKmh, float forwardSlip)
+        {
+            if (!absEnabled || speedKmh < absMinimumSpeedKmh)
+            {
+                return 1f;
+            }
+
+            float intervention = Mathf.InverseLerp(absSlipStart, absSlipEnd, Mathf.Abs(forwardSlip));
+            return Mathf.Lerp(1f, absMinimumBrakeDelivery, intervention);
+        }
+
+        private float ComputeBrakeTorque(Wheel wheel, bool serviceBraking, bool handbrake, float speedKmh)
         {
             float torque = serviceBraking ? brakeTorque : 0f;
+            if (serviceBraking && wheel.collider.GetGroundHit(out WheelHit hit))
+            {
+                float absMultiplier = EvaluateAbsBrakeMultiplier(speedKmh, hit.forwardSlip);
+                torque *= absMultiplier;
+                AbsActive |= absMultiplier < 0.999f;
+            }
+
             if (handbrake && !wheel.isFront)
             {
                 torque = Mathf.Max(torque, handbrakeTorque);

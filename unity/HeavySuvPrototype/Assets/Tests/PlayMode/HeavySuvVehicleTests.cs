@@ -186,7 +186,6 @@ namespace HeavySuvPrototype.Tests
             VehicleScenarioRunner awd = new VehicleScenarioRunner();
             yield return awd.Create();
             awd.Vehicle.SetDriveMode(DriveMode.Awd);
-            awd.Vehicle.countersteerAssistEnabled = false;
             awd.Vehicle.Body.linearVelocity = awd.Vehicle.transform.forward * 12f;
             yield return awd.Run(
                 VehicleScenarioRunner.For(1.25f, VehicleScenarioRunner.Input(throttle: true, steerRight: true)));
@@ -204,7 +203,6 @@ namespace HeavySuvPrototype.Tests
             VehicleScenarioRunner rwd = new VehicleScenarioRunner();
             yield return rwd.Create();
             rwd.Vehicle.SetDriveMode(DriveMode.Rwd);
-            rwd.Vehicle.countersteerAssistEnabled = false;
             rwd.Vehicle.Body.linearVelocity = rwd.Vehicle.transform.forward * 12f;
             yield return rwd.Run(
                 VehicleScenarioRunner.For(1.25f, VehicleScenarioRunner.Input(throttle: true, steerRight: true)));
@@ -246,40 +244,41 @@ namespace HeavySuvPrototype.Tests
         }
 
         [UnityTest]
-        public IEnumerator CountersteerAssistLimitsRwdSpinWhilePreservingDrift()
+        public IEnumerator AbsReducesServiceBrakeTorqueUnderWheelSlip()
         {
-            VehicleScenarioRunner unassisted = new VehicleScenarioRunner();
-            yield return unassisted.Create();
-            unassisted.Vehicle.SetDriveMode(DriveMode.Rwd);
-            unassisted.Vehicle.countersteerAssistEnabled = false;
-            unassisted.Vehicle.Body.linearVelocity = unassisted.Vehicle.transform.forward * 12f;
-            yield return unassisted.Run(
-                VehicleScenarioRunner.For(0.6f, VehicleScenarioRunner.Input(throttle: true, steerRight: true)),
-                VehicleScenarioRunner.For(1.2f, VehicleScenarioRunner.Input(throttle: true)));
-            float unassistedMaximumSlip = MaximumAbsoluteSlipAngle(unassisted);
-            float unassistedFinalSlip = Mathf.Abs(unassisted.Final.slipAngleDegrees);
+            VehicleScenarioRunner runner = new VehicleScenarioRunner();
+            yield return runner.Create();
 
-            VehicleScenarioRunner assisted = new VehicleScenarioRunner();
-            yield return assisted.Create();
-            assisted.Vehicle.SetDriveMode(DriveMode.Rwd);
-            assisted.Vehicle.countersteerAssistEnabled = true;
-            assisted.Vehicle.Body.linearVelocity = assisted.Vehicle.transform.forward * 12f;
-            yield return assisted.Run(
-                VehicleScenarioRunner.For(0.6f, VehicleScenarioRunner.Input(throttle: true, steerRight: true)),
-                VehicleScenarioRunner.For(1.2f, VehicleScenarioRunner.Input(throttle: true)));
+            Assert.AreEqual(1f, runner.Vehicle.EvaluateAbsBrakeMultiplier(5f, 0.8f), 0.001f);
+            Assert.AreEqual(1f, runner.Vehicle.EvaluateAbsBrakeMultiplier(40f, 0.1f), 0.001f);
+            Assert.Less(runner.Vehicle.EvaluateAbsBrakeMultiplier(40f, 0.35f), 1f);
+            Assert.AreEqual(
+                runner.Vehicle.absMinimumBrakeDelivery,
+                runner.Vehicle.EvaluateAbsBrakeMultiplier(40f, 0.8f),
+                0.001f);
 
-            float assistedMaximumSlip = MaximumAbsoluteSlipAngle(assisted);
-            float assistedFinalSlip = Mathf.Abs(assisted.Final.slipAngleDegrees);
-            float maximumAssist = MaximumAbsoluteCountersteer(assisted);
+            runner.Vehicle.absEnabled = false;
+            Assert.AreEqual(1f, runner.Vehicle.EvaluateAbsBrakeMultiplier(40f, 0.8f), 0.001f);
+        }
 
-            Assert.Greater(maximumAssist, 0.15f);
-            Assert.Greater(assistedMaximumSlip, 5f);
-            Assert.Less(
-                assistedMaximumSlip,
-                unassistedMaximumSlip - 5f,
-                $"maximum slip raw/assist {unassistedMaximumSlip:0.0}/{assistedMaximumSlip:0.0}; " +
-                $"final {unassistedFinalSlip:0.0}/{assistedFinalSlip:0.0}; assist {maximumAssist:0.00}");
-            Assert.Less(MaximumAbsoluteRoll(assisted), 45f);
+        [UnityTest]
+        public IEnumerator RespawnRestoresStartPoseAndClearsMotion()
+        {
+            VehicleScenarioRunner runner = new VehicleScenarioRunner();
+            yield return runner.Create();
+            Vector3 startPosition = runner.Vehicle.transform.position;
+            Quaternion startRotation = runner.Vehicle.transform.rotation;
+
+            runner.Vehicle.Body.position = startPosition + new Vector3(12f, 4f, -7f);
+            runner.Vehicle.Body.rotation = Quaternion.Euler(25f, 80f, 40f);
+            runner.Vehicle.Body.linearVelocity = new Vector3(8f, -3f, 11f);
+            runner.Vehicle.Body.angularVelocity = new Vector3(2f, 3f, 4f);
+            runner.Vehicle.RespawnAtStart();
+
+            Assert.Less(Vector3.Distance(startPosition, runner.Vehicle.transform.position), 0.001f);
+            Assert.Less(Quaternion.Angle(startRotation, runner.Vehicle.transform.rotation), 0.01f);
+            Assert.AreEqual(Vector3.zero, runner.Vehicle.Body.linearVelocity);
+            Assert.AreEqual(Vector3.zero, runner.Vehicle.Body.angularVelocity);
         }
 
         [UnityTest]
@@ -313,12 +312,11 @@ namespace HeavySuvPrototype.Tests
         }
 
         [UnityTest]
-        public IEnumerator HandbrakeBreaksRearGripAndAssistWaitsForRelease()
+        public IEnumerator HandbrakeBreaksRearGripAndDriveReturnsAfterRelease()
         {
             VehicleScenarioRunner normalTurn = new VehicleScenarioRunner();
             yield return normalTurn.Create();
             normalTurn.Vehicle.SetDriveMode(DriveMode.Rwd);
-            normalTurn.Vehicle.countersteerAssistEnabled = false;
             normalTurn.Vehicle.Body.linearVelocity = normalTurn.Vehicle.transform.forward * 12f;
             yield return normalTurn.Run(
                 VehicleScenarioRunner.For(0.55f, VehicleScenarioRunner.Input(steerRight: true)));
@@ -327,14 +325,12 @@ namespace HeavySuvPrototype.Tests
             VehicleScenarioRunner handbrakeTurn = new VehicleScenarioRunner();
             yield return handbrakeTurn.Create();
             handbrakeTurn.Vehicle.SetDriveMode(DriveMode.Rwd);
-            handbrakeTurn.Vehicle.countersteerAssistEnabled = true;
             handbrakeTurn.Vehicle.Body.linearVelocity = handbrakeTurn.Vehicle.transform.forward * 12f;
             yield return handbrakeTurn.Run(
                 VehicleScenarioRunner.For(0.55f, VehicleScenarioRunner.Input(steerRight: true, handbrake: true)));
 
             float handbrakeSlipAngle = Mathf.Abs(handbrakeTurn.Final.slipAngleDegrees);
             Assert.Greater(handbrakeSlipAngle, normalSlipAngle + 4f);
-            Assert.AreEqual(0f, MaximumAbsoluteCountersteer(handbrakeTurn), 0.001f);
             foreach (HeavySuvVehicleController.Wheel wheel in handbrakeTurn.Vehicle.wheels)
             {
                 if (!wheel.isFront)
@@ -350,7 +346,8 @@ namespace HeavySuvPrototype.Tests
             handbrakeTurn.Samples.Clear();
             yield return handbrakeTurn.Run(
                 VehicleScenarioRunner.For(0.7f, VehicleScenarioRunner.Input(throttle: true)));
-            Assert.Greater(MaximumAbsoluteCountersteer(handbrakeTurn), 0.1f);
+            Assert.IsFalse(handbrakeTurn.Vehicle.HandbrakeActive);
+            Assert.Greater(handbrakeTurn.Vehicle.wheels[2].collider.motorTorque, 0f);
             Assert.Less(MaximumAbsoluteRoll(handbrakeTurn), 45f);
         }
 
@@ -576,15 +573,5 @@ namespace HeavySuvPrototype.Tests
             return maximum;
         }
 
-        private static float MaximumAbsoluteCountersteer(VehicleScenarioRunner runner)
-        {
-            float maximum = 0f;
-            foreach (VehicleTelemetrySample sample in runner.Samples)
-            {
-                maximum = Mathf.Max(maximum, Mathf.Abs(sample.countersteerAssistInput));
-            }
-
-            return maximum;
-        }
     }
 }
