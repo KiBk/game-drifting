@@ -37,6 +37,7 @@ namespace HeavySuvPrototype
         public float secondGearTorqueMultiplier = 0.72f;
         public float autoShiftUpKmh = 36f;
         public float autoShiftDownKmh = 24f;
+        public float drivetrainReferenceWheelRadius = 0.63f;
 
         [Header("Steering")]
         public float maxSteerAngle = 21.5f;
@@ -222,8 +223,9 @@ namespace HeavySuvPrototype
                 }
 
                 wheel.collider.steerAngle = wheel.isFront ? steering : 0f;
+                float wheelGearingScale = GetWheelGearingScale(wheel);
                 wheel.collider.motorTorque =
-                    IsDriven(wheel) && drivenWheelCount > 0 ? drive.motorTorque / drivenWheelCount : 0f;
+                    IsDriven(wheel) && drivenWheelCount > 0 ? drive.motorTorque * wheelGearingScale / drivenWheelCount : 0f;
                 wheel.collider.brakeTorque = ComputeBrakeTorque(wheel, drive.serviceBraking, input.handbrake);
             }
         }
@@ -329,7 +331,13 @@ namespace HeavySuvPrototype
                 torque = Mathf.Max(torque, handbrakeTorque);
             }
 
-            return torque;
+            return torque * GetWheelGearingScale(wheel);
+        }
+
+        private float GetWheelGearingScale(Wheel wheel)
+        {
+            float radius = wheel?.collider != null ? wheel.collider.radius : drivetrainReferenceWheelRadius;
+            return radius / Mathf.Max(drivetrainReferenceWheelRadius, 0.001f);
         }
 
         private int CountDrivenWheels()

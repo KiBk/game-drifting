@@ -82,7 +82,7 @@ namespace HeavySuvPrototype
                     break;
             }
 
-            float connectedRpm = wheelRpm * ratio;
+            float connectedRpm = wheelRpm * ratio * AverageDrivenWheelRadiusScale();
             float freeRev = throttle * 2400f;
             return Mathf.Clamp(780f + Mathf.Max(connectedRpm, freeRev), 700f, 6200f);
         }
@@ -114,6 +114,36 @@ namespace HeavySuvPrototype
             }
 
             return count > 0 ? sum / count : 0f;
+        }
+
+        private float AverageDrivenWheelRadiusScale()
+        {
+            if (controller.wheels == null)
+            {
+                return 1f;
+            }
+
+            float sum = 0f;
+            int count = 0;
+            foreach (HeavySuvVehicleController.Wheel wheel in controller.wheels)
+            {
+                if (wheel?.collider == null)
+                {
+                    continue;
+                }
+
+                bool driven = controller.driveMode == DriveMode.Awd || !wheel.isFront;
+                if (!driven)
+                {
+                    continue;
+                }
+
+                sum += wheel.collider.radius;
+                count += 1;
+            }
+
+            float averageRadius = count > 0 ? sum / count : controller.drivetrainReferenceWheelRadius;
+            return averageRadius / Mathf.Max(controller.drivetrainReferenceWheelRadius, 0.001f);
         }
 
         private float ComputeSlipLevel()

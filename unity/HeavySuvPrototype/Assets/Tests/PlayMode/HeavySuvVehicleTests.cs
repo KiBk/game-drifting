@@ -135,6 +135,29 @@ namespace HeavySuvPrototype.Tests
         }
 
         [UnityTest]
+        public IEnumerator WheelSizeUsesReferenceGearingScale()
+        {
+            VehicleScenarioRunner runner = new VehicleScenarioRunner();
+            yield return runner.Create();
+            runner.Vehicle.SetDriveMode(DriveMode.Awd);
+
+            yield return runner.RunFor(Time.fixedDeltaTime, VehicleScenarioRunner.Input(throttle: true));
+
+            float radius = runner.Vehicle.wheels[0].collider.radius;
+            Assert.Less(radius, runner.Vehicle.drivetrainReferenceWheelRadius);
+
+            float expectedTorque =
+                runner.Vehicle.engineTorque *
+                runner.Vehicle.firstGearTorqueMultiplier *
+                (radius / runner.Vehicle.drivetrainReferenceWheelRadius) /
+                runner.Vehicle.wheels.Length;
+            foreach (HeavySuvVehicleController.Wheel wheel in runner.Vehicle.wheels)
+            {
+                Assert.AreEqual(expectedTorque, wheel.collider.motorTorque, 1f);
+            }
+        }
+
+        [UnityTest]
         public IEnumerator ManualGearModesControlDriveDirection()
         {
             VehicleScenarioRunner neutral = new VehicleScenarioRunner();
@@ -167,6 +190,7 @@ namespace HeavySuvPrototype.Tests
             Assert.NotNull(runner.Vehicle.GetComponent<VehicleLights>());
             Assert.NotNull(runner.Vehicle.GetComponent<TireMarkController>());
             Assert.NotNull(runner.Vehicle.GetComponent<VehicleAudio>());
+            Assert.NotNull(runner.Vehicle.transform.Find("Quaternius SUV Body"));
             Assert.AreEqual(12000f, runner.Vehicle.engineTorque);
 
             yield return runner.Run(VehicleScenarioRunner.For(0.9f, VehicleScenarioRunner.Input(throttle: true)));

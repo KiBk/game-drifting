@@ -4,8 +4,9 @@ namespace HeavySuvPrototype
 {
     public static class HeavySuvPrototypeFactory
     {
-        private const float WheelRadius = 0.63f;
-        private const float WheelWidth = 0.27f;
+        private const float WheelRadius = 0.44f;
+        private const float WheelWidth = 0.24f;
+        private const string QuaterniusSuvBodyPath = "Assets/External/Quaternius/Cars/OBJ/SUV_BodyOnly.obj";
 
         public static HeavySuvVehicleController CreatePrototype(bool includeCameraAndHud = true)
         {
@@ -59,7 +60,7 @@ namespace HeavySuvPrototype
         private static HeavySuvVehicleController CreateVehicle()
         {
             GameObject root = new GameObject("Heavy SUV");
-            root.transform.position = new Vector3(0f, 0.92f, 0f);
+            root.transform.position = new Vector3(0f, 0.74f, 0f);
             root.transform.rotation = Quaternion.identity;
 
             Rigidbody body = root.AddComponent<Rigidbody>();
@@ -71,10 +72,10 @@ namespace HeavySuvPrototype
 
             HeavySuvVehicleController controller = root.AddComponent<HeavySuvVehicleController>();
             controller.wheels = new HeavySuvVehicleController.Wheel[4];
-            controller.wheels[0] = CreateWheel(root.transform, "Front Left", true, true, -1.18f, 1.35f);
-            controller.wheels[1] = CreateWheel(root.transform, "Front Right", true, false, 1.18f, 1.35f);
-            controller.wheels[2] = CreateWheel(root.transform, "Rear Left", false, true, -1.18f, -1.28f);
-            controller.wheels[3] = CreateWheel(root.transform, "Rear Right", false, false, 1.18f, -1.28f);
+            controller.wheels[0] = CreateWheel(root.transform, "Front Left", true, true, -0.89f, 1.3f);
+            controller.wheels[1] = CreateWheel(root.transform, "Front Right", true, false, 0.89f, 1.3f);
+            controller.wheels[2] = CreateWheel(root.transform, "Rear Left", false, true, -0.89f, -1.24f);
+            controller.wheels[3] = CreateWheel(root.transform, "Rear Right", false, false, 0.89f, -1.24f);
 
             CreateChassisVisual(root.transform);
             CreateBrakeLights(root.transform, controller);
@@ -103,13 +104,13 @@ namespace HeavySuvPrototype
             wheelCollider.mass = 58f;
             wheelCollider.radius = WheelRadius;
             wheelCollider.wheelDampingRate = 0.55f;
-            wheelCollider.suspensionDistance = 0.72f;
+            wheelCollider.suspensionDistance = 0.56f;
             wheelCollider.forceAppPointDistance = 0.18f;
 
             JointSpring spring = wheelCollider.suspensionSpring;
             spring.spring = 32000f;
             spring.damper = 6200f;
-            spring.targetPosition = 0.55f;
+            spring.targetPosition = 0.54f;
             wheelCollider.suspensionSpring = spring;
 
             WheelFrictionCurve forward = wheelCollider.forwardFriction;
@@ -191,6 +192,11 @@ namespace HeavySuvPrototype
 
         private static void CreateChassisVisual(Transform parent)
         {
+            if (CreateImportedChassisVisual(parent))
+            {
+                return;
+            }
+
             Material bodyMaterial = CreateMaterial(new Color(0.83f, 0.25f, 0.18f));
             Material cabinMaterial = CreateMaterial(new Color(0.16f, 0.21f, 0.23f));
 
@@ -209,6 +215,38 @@ namespace HeavySuvPrototype
             cabin.transform.localScale = new Vector3(1.46f, 0.55f, 1.3f);
             cabin.GetComponent<Renderer>().sharedMaterial = cabinMaterial;
             RemoveCollider(cabin);
+        }
+
+        private static bool CreateImportedChassisVisual(Transform parent)
+        {
+#if UNITY_EDITOR
+            GameObject source = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(QuaterniusSuvBodyPath);
+            if (source == null)
+            {
+                return false;
+            }
+
+            GameObject model = UnityEngine.Object.Instantiate(source, parent, false);
+            model.name = "Quaternius SUV Body";
+            model.transform.localPosition = new Vector3(0f, -0.48f, 0f);
+            model.transform.localRotation = Quaternion.identity;
+            model.transform.localScale = Vector3.one;
+
+            foreach (Renderer renderer in model.GetComponentsInChildren<Renderer>())
+            {
+                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+                renderer.receiveShadows = true;
+            }
+
+            foreach (Collider collider in model.GetComponentsInChildren<Collider>())
+            {
+                UnityEngine.Object.DestroyImmediate(collider);
+            }
+
+            return true;
+#else
+            return false;
+#endif
         }
 
         private static void CreateBrakeLights(Transform parent, HeavySuvVehicleController controller)
