@@ -1,16 +1,13 @@
 using System.Collections.Generic;
-using System.Linq;
 using Unity.Netcode;
-using Unity.Services.Multiplayer;
 using UnityEngine;
 
 namespace HeavySuvPrototype
 {
-    [RequireComponent(typeof(NetworkObject))]
-    public sealed class MultiplayerCoordinator : NetworkBehaviour
+    public sealed class MultiplayerCoordinator : MonoBehaviour
     {
         public const int MaximumParticipants = 8;
-        public const int DriverSlots = 2;
+        public const int DriverSlots = MaximumParticipants;
         public const int NetworkVehicleLayer = 8;
 
         public static readonly Color32[] VehiclePalette =
@@ -25,164 +22,64 @@ namespace HeavySuvPrototype
             new Color32(236, 240, 241, 255)
         };
 
+        private static readonly float[] SpawnLanePositions = { -1.35f, 1.35f, -4.05f, 4.05f };
+
         public GameObject carPrefab;
 
         private readonly DriverQueue queue = new DriverQueue(DriverSlots, MaximumParticipants);
         private readonly List<ulong> connectionOrder = new List<ulong>();
         private readonly Dictionary<ulong, NetworkObject> cars = new Dictionary<ulong, NetworkObject>();
-        private NetworkList<NetworkParticipantState> participants;
-        private ISession distributedSession;
-        private NetworkObject distributedLocalCar;
-        private int distributedLocalRank = -1;
+        private readonly Dictionary<ulong, uint> assignedColors = new Dictionary<ulong, uint>();
+        private NetworkManager networkManager;
 
-        public NetworkList<NetworkParticipantState> Participants => participants;
-        public int ConnectedCount => distributedSession == null
-            ? participants == null ? 0 : participants.Count
-            : distributedSession.Players.Count;
+        public int ConnectedCount => networkManager != null && networkManager.IsServer
+            ? networkManager.ConnectedClientsIds.Count
+            : 0;
 
         private void Awake()
         {
-            participants = new NetworkList<NetworkParticipantState>();
             Physics.IgnoreLayerCollision(NetworkVehicleLayer, NetworkVehicleLayer, true);
+            AttachNetworkManager();
         }
 
-        public override void OnNetworkSpawn()
+        private void Start()
         {
-            if (NetworkManager.DistributedAuthorityMode)
-            {
-                EvaluateDistributedRole();
-                return;
-            }
-
-            if (!IsServer)
+            AttachNetworkManager();
+            if (networkManager == null || !networkManager.IsServer)
             {
                 return;
             }
 
-            NetworkManager.OnClientConnectedCallback += OnClientConnected;
-            NetworkManager.OnClientDisconnectCallback += OnClientDisconnected;
-            foreach (ulong clientId in NetworkManager.ConnectedClientsIds)
+            foreach (ulong clientId in networkManager.ConnectedClientsIds)
             {
                 OnClientConnected(clientId);
             }
         }
 
-        public override void OnNetworkDespawn()
+        private void AttachNetworkManager()
         {
-            BindSession(null);
-            if (NetworkManager != null && IsServer)
+            if (networkManager != null)
             {
-                NetworkManager.OnClientConnectedCallback -= OnClientConnected;
-                NetworkManager.OnClientDisconnectCallback -= OnClientDisconnected;
+                return;
             }
 
-            queue.Clear();
-            connectionOrder.Clear();
-            cars.Clear();
-        }
-
-        private void Update()
-        {
-            if (distributedSession != null && distributedLocalCar == null)
+            networkManager = FindAnyObjectByType<NetworkManager>();
+            if (networkManager == null)
             {
-                EvaluateDistributedRole();
-            }
-        }
-
-        public void BindSession(ISession session)
-        {
-            if (distributedSession != null)
-            {
-                distributedSession.Changed -= OnDistributedSessionChanged;
-                distributedSession.PlayerJoined -= OnDistributedPlayerChanged;
-                distributedSession.PlayerHasLeft -= OnDistributedPlayerChanged;
+                return;
             }
 
-            distributedSession = session;
-            distributedLocalRank = -1;
-            if (distributedSession != null)
-            {
-                distributedSession.Changed += OnDistributedSessionChanged;
-                distributedSession.PlayerJoined += OnDistributedPlayerChanged;
-                distributedSession.PlayerHasLeft += OnDistributedPlayerChanged;
-                EvaluateDistributedRole();
-            }
-        }
-
-        public bool TryGetParticipant(ulong clientId, out NetworkParticipantState state)
-        {
-            if (distributedSession != null &&
-                NetworkManager.Singleton != null &&
-                clientId == NetworkManager.Singleton.LocalClientId)
-            {
-                int rank = GetDistributedLocalRank();
-                bool driver = rank >= 0 && rank < DriverSlots;
-                state = new NetworkParticipantState
-                {
-                    clientId = clientId,
-                    role = driver ? MultiplayerRole.Driver : MultiplayerRole.Spectator,
-                    queuePosition = driver ? 0 : Mathf.Max(1, rank - DriverSlots + 1),
-                    driverSlot = driver ? rank : -1,
-                    car = distributedLocalCar == null ? default : distributedLocalCar
-                };
-                return rank >= 0;
-            }
-
-            if (participants != null)
-            {
-                for (int index = 0; index < participants.Count; index += 1)
-                {
-                    if (participants[index].clientId == clientId)
-                    {
-                        state = participants[index];
-                        return true;
-                    }
-                }
-            }
-
-            state = default;
-            return false;
-        }
-
-        public List<Transform> GetActiveCarTransforms()
-        {
-            if (distributedSession != null)
-            {
-                return FindObjectsByType<NetworkRallyCar>(FindObjectsSortMode.None)
-                    .Where(car => car.NetworkObject != null && car.NetworkObject.IsSpawned)
-                    .OrderBy(car => car.OwnerClientId)
-                    .Select(car => car.transform)
-                    .ToList();
-            }
-
-            List<(int slot, Transform transform)> sorted = new List<(int, Transform)>();
-            if (participants != null)
-            {
-                for (int index = 0; index < participants.Count; index += 1)
-                {
-                    NetworkParticipantState state = participants[index];
-                    if (state.role == MultiplayerRole.Driver &&
-                        state.car.TryGet(out NetworkObject networkObject) &&
-                        networkObject != null)
-                    {
-                        sorted.Add((state.driverSlot, networkObject.transform));
-                    }
-                }
-            }
-
-            sorted.Sort((left, right) => left.slot.CompareTo(right.slot));
-            List<Transform> result = new List<Transform>();
-            foreach ((int slot, Transform transform) item in sorted)
-            {
-                result.Add(item.transform);
-            }
-
-            return result;
+            networkManager.OnClientConnectedCallback += OnClientConnected;
+            networkManager.OnClientDisconnectCallback += OnClientDisconnected;
+            networkManager.OnServerStopped += OnServerStopped;
         }
 
         private void OnClientConnected(ulong clientId)
         {
-            if (!IsServer || connectionOrder.Contains(clientId) || !queue.Add(clientId))
+            if (networkManager == null ||
+                !networkManager.IsServer ||
+                connectionOrder.Contains(clientId) ||
+                !queue.Add(clientId))
             {
                 return;
             }
@@ -192,13 +89,11 @@ namespace HeavySuvPrototype
             {
                 SpawnCar(clientId, queue.GetDriverSlot(clientId));
             }
-
-            RebuildParticipantStates();
         }
 
         private void OnClientDisconnected(ulong clientId)
         {
-            if (!IsServer || !connectionOrder.Remove(clientId))
+            if (networkManager == null || !networkManager.IsServer || !connectionOrder.Remove(clientId))
             {
                 return;
             }
@@ -209,8 +104,14 @@ namespace HeavySuvPrototype
             {
                 SpawnCar(promoted.Value, queue.GetDriverSlot(promoted.Value));
             }
+        }
 
-            RebuildParticipantStates();
+        private void OnServerStopped(bool wasHost)
+        {
+            queue.Clear();
+            connectionOrder.Clear();
+            cars.Clear();
+            assignedColors.Clear();
         }
 
         private void SpawnCar(ulong clientId, int driverSlot)
@@ -220,7 +121,7 @@ namespace HeavySuvPrototype
                 return;
             }
 
-            Vector3 spawnPosition = new Vector3(driverSlot == 0 ? -1.35f : 1.35f, 0.52f, 0f);
+            Vector3 spawnPosition = GetSpawnPosition(driverSlot);
             GameObject carObject = Instantiate(carPrefab, spawnPosition, Quaternion.identity);
             SetLayerRecursively(carObject, NetworkVehicleLayer);
             HeavySuvVehicleController controller = carObject.GetComponent<HeavySuvVehicleController>();
@@ -236,12 +137,15 @@ namespace HeavySuvPrototype
             NetworkRallyCar rallyCar = carObject.GetComponent<NetworkRallyCar>();
             if (rallyCar != null)
             {
-                rallyCar.SetColor(ChooseColor());
+                Color32 color = ChooseColor();
+                assignedColors[clientId] = NetworkRallyCar.PackColor(color);
+                rallyCar.SetColor(color);
             }
         }
 
         private void DespawnCar(ulong clientId)
         {
+            assignedColors.Remove(clientId);
             if (!cars.Remove(clientId, out NetworkObject networkObject) || networkObject == null)
             {
                 return;
@@ -256,21 +160,12 @@ namespace HeavySuvPrototype
         private Color32 ChooseColor()
         {
             HashSet<uint> used = new HashSet<uint>();
-            foreach (NetworkObject networkObject in cars.Values)
+            foreach (uint assignedColor in assignedColors.Values)
             {
-                NetworkRallyCar car = networkObject == null ? null : networkObject.GetComponent<NetworkRallyCar>();
-                if (car != null)
-                {
-                    used.Add(NetworkRallyCar.PackColor(car.VehicleColor));
-                }
+                used.Add(assignedColor);
             }
 
-            foreach (NetworkRallyCar existing in FindObjectsByType<NetworkRallyCar>(FindObjectsSortMode.None))
-            {
-                used.Add(NetworkRallyCar.PackColor(existing.VehicleColor));
-            }
-
-            int start = Random.Range(0, VehiclePalette.Length);
+            int start = UnityEngine.Random.Range(0, VehiclePalette.Length);
             for (int offset = 0; offset < VehiclePalette.Length; offset += 1)
             {
                 Color32 candidate = VehiclePalette[(start + offset) % VehiclePalette.Length];
@@ -283,29 +178,6 @@ namespace HeavySuvPrototype
             return VehiclePalette[start];
         }
 
-        private void RebuildParticipantStates()
-        {
-            participants.Clear();
-            foreach (ulong clientId in connectionOrder)
-            {
-                MultiplayerRole role = queue.GetRole(clientId);
-                NetworkObjectReference carReference = default;
-                if (cars.TryGetValue(clientId, out NetworkObject car) && car != null)
-                {
-                    carReference = car;
-                }
-
-                participants.Add(new NetworkParticipantState
-                {
-                    clientId = clientId,
-                    role = role,
-                    queuePosition = queue.GetQueuePosition(clientId),
-                    driverSlot = queue.GetDriverSlot(clientId),
-                    car = carReference
-                });
-            }
-        }
-
         private static void SetLayerRecursively(GameObject gameObject, int layer)
         {
             gameObject.layer = layer;
@@ -315,94 +187,27 @@ namespace HeavySuvPrototype
             }
         }
 
-        private void OnDistributedSessionChanged()
+        public static Vector3 GetSpawnPosition(int driverSlot)
         {
-            EvaluateDistributedRole();
+            int clampedSlot = Mathf.Clamp(driverSlot, 0, MaximumParticipants - 1);
+            int row = clampedSlot / 4;
+            int column = clampedSlot % 4;
+            return new Vector3(SpawnLanePositions[column], 0.52f, row * -4.5f);
         }
 
-        private void OnDistributedPlayerChanged(string playerId)
+        private void OnDestroy()
         {
-            EvaluateDistributedRole();
-        }
-
-        private int GetDistributedLocalRank()
-        {
-            if (distributedSession?.CurrentPlayer == null)
+            if (networkManager != null)
             {
-                return -1;
+                networkManager.OnClientConnectedCallback -= OnClientConnected;
+                networkManager.OnClientDisconnectCallback -= OnClientDisconnected;
+                networkManager.OnServerStopped -= OnServerStopped;
             }
 
-            List<IReadOnlyPlayer> orderedPlayers = distributedSession.Players
-                .OrderBy(player => player.Joined)
-                .ThenBy(player => player.Id)
-                .ToList();
-            return orderedPlayers.FindIndex(player => player.Id == distributedSession.CurrentPlayer.Id);
-        }
-
-        private void EvaluateDistributedRole()
-        {
-            if (distributedSession == null ||
-                NetworkManager.Singleton == null ||
-                !NetworkManager.Singleton.IsConnectedClient)
-            {
-                return;
-            }
-
-            int rank = GetDistributedLocalRank();
-            if (rank < 0)
-            {
-                return;
-            }
-
-            distributedLocalRank = rank;
-            if (rank < DriverSlots)
-            {
-                SpawnDistributedLocalCar(rank);
-            }
-            else
-            {
-                DespawnDistributedLocalCar();
-            }
-        }
-
-        private void SpawnDistributedLocalCar(int driverSlot)
-        {
-            if (distributedLocalCar != null || carPrefab == null)
-            {
-                return;
-            }
-
-            Vector3 spawnPosition = new Vector3(driverSlot == 0 ? -1.35f : 1.35f, 0.52f, 0f);
-            GameObject carObject = Instantiate(carPrefab, spawnPosition, Quaternion.identity);
-            SetLayerRecursively(carObject, NetworkVehicleLayer);
-            HeavySuvVehicleController controller = carObject.GetComponent<HeavySuvVehicleController>();
-            if (controller != null)
-            {
-                controller.SetRespawnPose(spawnPosition, Quaternion.identity);
-            }
-
-            distributedLocalCar = carObject.GetComponent<NetworkObject>();
-            distributedLocalCar.Spawn(true);
-            NetworkRallyCar rallyCar = carObject.GetComponent<NetworkRallyCar>();
-            if (rallyCar != null)
-            {
-                rallyCar.SetColor(ChooseColor());
-            }
-        }
-
-        private void DespawnDistributedLocalCar()
-        {
-            if (distributedLocalCar == null)
-            {
-                return;
-            }
-
-            if (distributedLocalCar.IsSpawned && distributedLocalCar.IsOwner)
-            {
-                distributedLocalCar.Despawn(true);
-            }
-
-            distributedLocalCar = null;
+            queue.Clear();
+            connectionOrder.Clear();
+            cars.Clear();
+            assignedColors.Clear();
         }
     }
 }

@@ -14,11 +14,15 @@ namespace HeavySuvPrototype
             "Rally Hatch Rear"
         };
 
-        private readonly NetworkVariable<uint> colorRgba = new NetworkVariable<uint>();
+        private readonly NetworkVariable<uint> colorRgba = new NetworkVariable<uint>(
+            default,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Owner);
         private HeavySuvVehicleController controller;
 
         public Color32 VehicleColor => UnpackColor(colorRgba.Value);
         public bool LocalSimulationEnabled => controller != null && controller.enabled;
+        public NetworkVariableWritePermission ColorWritePermission => colorRgba.WritePerm;
 
         private void Awake()
         {
@@ -39,10 +43,21 @@ namespace HeavySuvPrototype
 
         public void SetColor(Color32 color)
         {
-            if (IsServer || (NetworkManager != null && NetworkManager.DistributedAuthorityMode && IsOwner))
+            uint packedColor = PackColor(color);
+            if (IsOwner)
             {
-                colorRgba.Value = PackColor(color);
+                colorRgba.Value = packedColor;
             }
+            else if (IsServer)
+            {
+                SetColorForOwnerRpc(packedColor);
+            }
+        }
+
+        [Rpc(SendTo.Owner)]
+        private void SetColorForOwnerRpc(uint packedColor)
+        {
+            colorRgba.Value = packedColor;
         }
 
         public static uint PackColor(Color32 color)
@@ -78,6 +93,8 @@ namespace HeavySuvPrototype
             {
                 return;
             }
+
+            FindAnyObjectByType<MultiplayerBootstrap>()?.NotifyLocalCarReady();
 
             ChaseCamera camera = FindAnyObjectByType<ChaseCamera>();
             if (camera != null)

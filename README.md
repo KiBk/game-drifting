@@ -15,7 +15,9 @@ Build the Unity project as documented in
 
 Commit the resulting `deploy/webgl` changes together with the game source. This
 keeps container builds reproducible without requiring a Unity license in GitHub
-Actions.
+Actions. The sync script adds a content revision to Unity's fixed build URLs,
+and Nginx requires revalidation so browsers do not mix incompatible multiplayer
+builds.
 
 ## Build the container locally
 

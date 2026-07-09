@@ -25,8 +25,8 @@ asset churn while the gameplay-facing prototype moves to the rally format.
 - Layered open-source electric-motor, tire-rolling, wheelspin, and locked-tire audio.
 - HUD sound-effects volume control and a button to respawn at the assigned start.
 - Lower rally-car body and center of mass for sustained-corner rollover resistance.
-- Automatic Unity Sessions/Distributed Authority connection with two owner-driven network cars.
-- Six-person FIFO spectator queue with follow-camera switching.
+- Automatic Unity Sessions/Relay connection with up to eight owner-driven network cars.
+- Random active-car preview camera while a browser finishes joining the realtime network.
 - Random synchronized car colors and ghosted car-to-car collisions.
 - Chase camera and compact control HUD with selector, ABS, and boost status.
 - PlayMode coordinate tests for steering signs, straight driving, reverse,
@@ -41,8 +41,11 @@ Unity Cloud linking instructions are in `UGS_SETUP.md`.
 ## Multiplayer
 
 - Packages: Netcode for GameObjects `2.13.0` and Multiplayer Services `2.2.4`.
-- Session: `convoy-rally-public-v1`, eight total participants, two drivers.
-- Web builds use Unity Distributed Authority over secure WebSockets because WebGL cannot act as a Unity Transport server.
+- Session: `convoy-rally-public-v6`, eight participants, and eight active drivers.
+- Spawning waits for both the session response and Netcode's local-client-ready callback.
+- The protocol room is versioned so incompatible cached builds cannot share a session.
+- Relay host migration recreates the network and intentionally resets cars instead of preserving stage state.
+- Web builds use Relay client-host networking over secure WebSockets.
 - Without a linked Unity Cloud project the build runs a local one-player fallback.
 
 ## Batch Commands

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using NUnit.Framework;
 using Unity.Netcode;
 using Unity.Netcode.Components;
@@ -8,27 +9,27 @@ namespace HeavySuvPrototype.Tests
     public sealed class MultiplayerPrototypeTests
     {
         [Test]
-        public void FirstTwoParticipantsDriveAndRemainingParticipantsQueue()
+        public void AllEightParticipantsDriveAndNinthIsRejected()
         {
-            DriverQueue queue = new DriverQueue();
+            DriverQueue queue = new DriverQueue(
+                MultiplayerCoordinator.DriverSlots,
+                MultiplayerCoordinator.MaximumParticipants);
             for (ulong clientId = 1; clientId <= 8; clientId += 1)
             {
                 Assert.IsTrue(queue.Add(clientId));
+                Assert.AreEqual(MultiplayerRole.Driver, queue.GetRole(clientId));
+                Assert.AreEqual((int)clientId - 1, queue.GetDriverSlot(clientId));
+                Assert.AreEqual(0, queue.GetQueuePosition(clientId));
             }
 
-            Assert.AreEqual(MultiplayerRole.Driver, queue.GetRole(1));
-            Assert.AreEqual(MultiplayerRole.Driver, queue.GetRole(2));
-            Assert.AreEqual(0, queue.GetDriverSlot(1));
-            Assert.AreEqual(1, queue.GetDriverSlot(2));
-            Assert.AreEqual(1, queue.GetQueuePosition(3));
-            Assert.AreEqual(6, queue.GetQueuePosition(8));
+            Assert.AreEqual(8, MultiplayerCoordinator.DriverSlots);
             Assert.IsFalse(queue.Add(9));
         }
 
         [Test]
         public void DriverDeparturePromotesFirstSpectatorIntoSameSlot()
         {
-            DriverQueue queue = CreateFourParticipantQueue();
+            DriverQueue queue = CreateFourParticipantQueueWithTwoDrivers();
 
             ulong? promoted = queue.Remove(1);
 
@@ -42,7 +43,7 @@ namespace HeavySuvPrototype.Tests
         [Test]
         public void SpectatorDepartureCompactsQueuePositions()
         {
-            DriverQueue queue = CreateFourParticipantQueue();
+            DriverQueue queue = CreateFourParticipantQueueWithTwoDrivers();
 
             Assert.IsNull(queue.Remove(3));
 
@@ -62,11 +63,50 @@ namespace HeavySuvPrototype.Tests
         }
 
         [Test]
+        public void SessionAndNetworkMustBothBeReadyBeforeAssignment()
+        {
+            MultiplayerReadinessGate gate = new MultiplayerReadinessGate();
+
+            gate.MarkSessionReady();
+            Assert.IsFalse(gate.IsReady);
+            gate.MarkNetworkReady();
+            Assert.IsTrue(gate.IsReady);
+
+            gate.Reset();
+            gate.MarkNetworkReady();
+            Assert.IsFalse(gate.IsReady);
+            gate.MarkSessionReady();
+            Assert.IsTrue(gate.IsReady);
+        }
+
+        [Test]
+        public void EightDriverStartsAreDistinctAndProtocolUsesFreshRoom()
+        {
+            HashSet<Vector3> positions = new HashSet<Vector3>();
+            for (int slot = 0; slot < MultiplayerCoordinator.DriverSlots; slot += 1)
+            {
+                Assert.IsTrue(positions.Add(MultiplayerCoordinator.GetSpawnPosition(slot)));
+            }
+
+            Assert.AreEqual(8, positions.Count);
+            Assert.AreEqual(6, MultiplayerBootstrap.NetworkProtocolVersion);
+            StringAssert.EndsWith("-v6", MultiplayerBootstrap.PublicSessionId);
+        }
+
+        [Test]
+        public void HostMigrationIntentionallyResetsGameState()
+        {
+            ResetOnlyMigrationDataHandler handler = new ResetOnlyMigrationDataHandler();
+
+            CollectionAssert.AreEqual(new byte[] { 1 }, handler.Generate());
+            Assert.DoesNotThrow(() => handler.Apply(new byte[] { 1, 2, 3 }));
+        }
+
+        [Test]
         public void NetworkCarPrefabUsesOwnerAuthorityAndGhostLayer()
         {
             GameObject prefab = Resources.Load<GameObject>("Network/NetworkRallyCar");
             GameObject coordinatorObject = new GameObject("Coordinator Test");
-            coordinatorObject.AddComponent<NetworkObject>();
             coordinatorObject.AddComponent<MultiplayerCoordinator>();
 
             Assert.NotNull(prefab);
@@ -77,6 +117,9 @@ namespace HeavySuvPrototype.Tests
             Assert.AreEqual(
                 NetworkTransform.AuthorityModes.Owner,
                 prefab.GetComponent<NetworkTransform>().AuthorityMode);
+            Assert.AreEqual(
+                NetworkVariableWritePermission.Owner,
+                prefab.GetComponent<NetworkRallyCar>().ColorWritePermission);
             Assert.IsTrue(Physics.GetIgnoreLayerCollision(
                 MultiplayerCoordinator.NetworkVehicleLayer,
                 MultiplayerCoordinator.NetworkVehicleLayer));
@@ -84,9 +127,9 @@ namespace HeavySuvPrototype.Tests
             Object.DestroyImmediate(coordinatorObject);
         }
 
-        private static DriverQueue CreateFourParticipantQueue()
+        private static DriverQueue CreateFourParticipantQueueWithTwoDrivers()
         {
-            DriverQueue queue = new DriverQueue();
+            DriverQueue queue = new DriverQueue(2, 8);
             queue.Add(1);
             queue.Add(2);
             queue.Add(3);

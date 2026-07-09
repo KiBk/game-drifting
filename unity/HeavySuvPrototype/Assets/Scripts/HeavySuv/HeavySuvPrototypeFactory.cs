@@ -273,6 +273,11 @@ namespace HeavySuvPrototype
             cameraObject.AddComponent<AudioListener>();
             ChaseCamera chaseCamera = cameraObject.AddComponent<ChaseCamera>();
             chaseCamera.target = target;
+            if (target == null)
+            {
+                cameraObject.transform.position = new Vector3(0f, 7.5f, -12f);
+                cameraObject.transform.LookAt(new Vector3(0f, 1f, 2f), Vector3.up);
+            }
             return chaseCamera;
         }
 

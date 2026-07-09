@@ -76,11 +76,12 @@ namespace HeavySuvPrototype.Editor
             UnityTransport transport = networkManagerObject.AddComponent<UnityTransport>();
             MultiplayerBootstrap bootstrap = networkManagerObject.AddComponent<MultiplayerBootstrap>();
             bootstrap.carPrefab = carPrefab;
+            transport.UseWebSockets = true;
             networkManager.NetworkConfig.NetworkTransport = transport;
             networkManager.NetworkConfig.EnableSceneManagement = false;
+            networkManager.NetworkConfig.ProtocolVersion = MultiplayerBootstrap.NetworkProtocolVersion;
 
             GameObject coordinatorObject = new GameObject("Multiplayer Coordinator");
-            coordinatorObject.AddComponent<NetworkObject>();
             MultiplayerCoordinator coordinator = coordinatorObject.AddComponent<MultiplayerCoordinator>();
             coordinator.carPrefab = carPrefab;
 

@@ -7,7 +7,7 @@ namespace HeavySuvPrototype
         private readonly ulong?[] driverSlots;
         private readonly List<ulong> spectators = new List<ulong>();
 
-        public DriverQueue(int driverCount = 2, int capacity = 8)
+        public DriverQueue(int driverCount = 8, int capacity = 8)
         {
             DriverCount = driverCount;
             Capacity = capacity;

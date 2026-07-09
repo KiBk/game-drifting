@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using Unity.Netcode;
 using UnityEngine;
 
 namespace HeavySuvPrototype
@@ -11,16 +10,17 @@ namespace HeavySuvPrototype
 
         private GUIStyle panelStyle;
         private GUIStyle labelStyle;
-        private int watchedCarIndex;
+        private GUIStyle titleStyle;
+        private int watchedCarIndex = -1;
 
         private void Update()
         {
-            if (Input.GetKeyDown(KeyCode.Tab) && IsSpectator())
+            if (Input.GetKeyDown(KeyCode.Tab) && !HasLocalDriverCar())
             {
                 CycleCar(1);
             }
 
-            RefreshSpectatorTarget();
+            RefreshCameraTarget();
         }
 
         private void OnGUI()
@@ -38,63 +38,67 @@ namespace HeavySuvPrototype
                 fontSize = 15,
                 normal = { textColor = Color.white }
             };
+            titleStyle ??= new GUIStyle(labelStyle)
+            {
+                fontSize = 20,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter
+            };
 
             string status = bootstrap == null ? "Starting multiplayer…" : bootstrap.Status;
-            int connected = coordinator == null ? 0 : coordinator.ConnectedCount;
-            if (connected == 0 && bootstrap != null)
+            int connected = bootstrap == null
+                ? coordinator == null ? 0 : coordinator.ConnectedCount
+                : bootstrap.ConnectedCount;
+
+            if (bootstrap == null || !bootstrap.IsGameplayReady)
             {
-                connected = bootstrap.OfflineConnectedCount;
-            }
-            if (!TryGetLocalState(out NetworkParticipantState state) || state.role == MultiplayerRole.Driver)
-            {
-                GUI.Box(
-                    new Rect(Screen.width * 0.5f - 170f, Screen.height - 122f, 340f, 72f),
-                    $"{status}\nPlayers: {connected}/{MultiplayerCoordinator.MaximumParticipants}",
-                    panelStyle);
+                DrawConnectionPanel(status, connected);
                 return;
             }
 
-            Rect panel = new Rect(Screen.width * 0.5f - 170f, 14f, 340f, 174f);
+            GUI.Box(
+                new Rect(Screen.width * 0.5f - 190f, Screen.height - 122f, 380f, 72f),
+                $"{status}\nDrivers online: {connected}/{MultiplayerCoordinator.MaximumParticipants}",
+                panelStyle);
+        }
+
+        private void DrawConnectionPanel(string status, int connected)
+        {
+            const float panelWidth = 420f;
+            const float panelHeight = 174f;
+            Rect panel = new Rect(Screen.width * 0.5f - panelWidth * 0.5f, 24f, panelWidth, panelHeight);
             GUI.Box(panel, string.Empty, panelStyle);
-            GUILayout.BeginArea(new Rect(panel.x + 14f, panel.y + 10f, panel.width - 28f, panel.height - 20f));
-            GUILayout.Label("Spectating", labelStyle);
-            GUILayout.Label($"Queue position: {state.queuePosition}", labelStyle);
-            GUILayout.Label($"Players: {connected}/{MultiplayerCoordinator.MaximumParticipants}", labelStyle);
+            GUILayout.BeginArea(new Rect(panel.x + 16f, panel.y + 12f, panel.width - 32f, panel.height - 24f));
+            GUILayout.Label("Convoy Rally Online", titleStyle);
             GUILayout.Label(status, labelStyle);
-            if (GetCars().Count < MultiplayerCoordinator.DriverSlots)
+            GUILayout.Label($"Room: {connected}/{MultiplayerCoordinator.MaximumParticipants} — every slot gets a car", labelStyle);
+            if (GetCars().Count > 0)
             {
-                GUILayout.Label("Waiting for another driver", labelStyle);
+                GUILayout.Label("Previewing an active car — Tab switches cars", labelStyle);
+            }
+            else
+            {
+                GUILayout.Label("Waiting for the first active car…", labelStyle);
             }
 
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Previous Car"))
+            if (bootstrap != null && bootstrap.CanRetry && GUILayout.Button("Reconnect now"))
             {
-                CycleCar(-1);
+                bootstrap.RetryNow();
             }
 
-            if (GUILayout.Button("Next Car"))
-            {
-                CycleCar(1);
-            }
-
-            GUILayout.EndHorizontal();
-            GUILayout.Label("Tab also switches cars", labelStyle);
             GUILayout.EndArea();
         }
 
-        private bool IsSpectator()
+        private bool HasLocalDriverCar()
         {
-            return TryGetLocalState(out NetworkParticipantState state) && state.role == MultiplayerRole.Spectator;
-        }
-
-        private bool TryGetLocalState(out NetworkParticipantState state)
-        {
-            if (coordinator != null && NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient)
+            foreach (NetworkRallyCar car in FindObjectsByType<NetworkRallyCar>())
             {
-                return coordinator.TryGetParticipant(NetworkManager.Singleton.LocalClientId, out state);
+                if (car.IsSpawned && car.IsOwner)
+                {
+                    return true;
+                }
             }
 
-            state = default;
             return false;
         }
 
@@ -103,40 +107,94 @@ namespace HeavySuvPrototype
             List<Transform> cars = GetCars();
             if (cars.Count == 0)
             {
-                watchedCarIndex = 0;
+                watchedCarIndex = -1;
                 return;
             }
 
-            watchedCarIndex = (watchedCarIndex + direction + cars.Count) % cars.Count;
+            ChaseCamera camera = FindAnyObjectByType<ChaseCamera>();
+            int currentIndex = camera == null ? -1 : cars.IndexOf(camera.target);
+            watchedCarIndex = currentIndex < 0
+                ? UnityEngine.Random.Range(0, cars.Count)
+                : (currentIndex + direction + cars.Count) % cars.Count;
             SetCameraTarget(cars[watchedCarIndex]);
         }
 
-        private void RefreshSpectatorTarget()
+        private void RefreshCameraTarget()
         {
-            if (!IsSpectator())
+            ChaseCamera camera = FindAnyObjectByType<ChaseCamera>();
+            if (camera == null)
             {
+                return;
+            }
+
+            if (HasLocalDriverCar())
+            {
+                foreach (NetworkRallyCar car in FindObjectsByType<NetworkRallyCar>())
+                {
+                    if (car.IsSpawned && car.IsOwner)
+                    {
+                        camera.target = car.transform;
+                        return;
+                    }
+                }
+
                 return;
             }
 
             List<Transform> cars = GetCars();
             if (cars.Count == 0)
             {
-                SetCameraTarget(null);
-                watchedCarIndex = 0;
+                watchedCarIndex = -1;
                 return;
             }
 
-            watchedCarIndex = Mathf.Clamp(watchedCarIndex, 0, cars.Count - 1);
-            ChaseCamera camera = FindAnyObjectByType<ChaseCamera>();
-            if (camera != null && !cars.Contains(camera.target))
+            int currentIndex = cars.IndexOf(camera.target);
+            if (currentIndex >= 0)
             {
-                camera.target = cars[watchedCarIndex];
+                watchedCarIndex = currentIndex;
+                return;
             }
+
+            Transform target = ChooseRandomPreviewCar(cars);
+            watchedCarIndex = cars.IndexOf(target);
+            camera.target = target;
+        }
+
+        private static Transform ChooseRandomPreviewCar(List<Transform> cars)
+        {
+            List<Transform> movingCars = new List<Transform>();
+            foreach (Transform car in cars)
+            {
+                Rigidbody body = car == null ? null : car.GetComponent<Rigidbody>();
+                if (body != null && body.linearVelocity.sqrMagnitude > 1f)
+                {
+                    movingCars.Add(car);
+                }
+            }
+
+            List<Transform> candidates = movingCars.Count > 0 ? movingCars : cars;
+            return candidates[UnityEngine.Random.Range(0, candidates.Count)];
         }
 
         private List<Transform> GetCars()
         {
-            return coordinator == null ? new List<Transform>() : coordinator.GetActiveCarTransforms();
+            List<NetworkRallyCar> networkCars = new List<NetworkRallyCar>();
+            foreach (NetworkRallyCar car in FindObjectsByType<NetworkRallyCar>())
+            {
+                if (car.IsSpawned)
+                {
+                    networkCars.Add(car);
+                }
+            }
+
+            networkCars.Sort((left, right) => left.OwnerClientId.CompareTo(right.OwnerClientId));
+            List<Transform> cars = new List<Transform>(networkCars.Count);
+            foreach (NetworkRallyCar car in networkCars)
+            {
+                cars.Add(car.transform);
+            }
+
+            return cars;
         }
 
         private static void SetCameraTarget(Transform target)

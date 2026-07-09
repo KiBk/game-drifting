@@ -11,4 +11,4 @@ The multiplayer code is complete, but this repository intentionally does not con
 
 When no cloud project is linked, the game deliberately starts a one-player local host and displays a setup message instead of becoming unplayable.
 
-The public session ID is `convoy-rally-public-v1`, supports eight participants, and uses Unity Distributed Authority over secure WebSockets. The first two participants receive cars and later participants enter the spectator queue.
+The public session ID is `convoy-rally-public-v6`, supports eight active drivers, and uses Relay client-host networking over secure WebSockets. Bump the session and Netcode protocol versions together whenever a release makes network-incompatible prefab or behavior changes. Host migration uses a one-byte reset marker because this prototype intentionally resets cars after host loss.

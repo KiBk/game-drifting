@@ -17,4 +17,16 @@ rsync -a \
   --exclude='*_BurstDebugInformation_DoNotShip/' \
   "${build_dir}/" "${deploy_dir}/"
 
-echo "Synced Unity WebGL build to ${deploy_dir}"
+build_revision="$({
+  cksum "${deploy_dir}"/Build/*
+} | cksum | awk '{print $1}')"
+
+sed \
+  -e "s#/WebGL.loader.js#/WebGL.loader.js?v=${build_revision}#g" \
+  -e "s#/WebGL.data.gz#/WebGL.data.gz?v=${build_revision}#g" \
+  -e "s#/WebGL.framework.js.gz#/WebGL.framework.js.gz?v=${build_revision}#g" \
+  -e "s#/WebGL.wasm.gz#/WebGL.wasm.gz?v=${build_revision}#g" \
+  "${deploy_dir}/index.html" > "${deploy_dir}/index.html.tmp"
+mv "${deploy_dir}/index.html.tmp" "${deploy_dir}/index.html"
+
+echo "Synced Unity WebGL build ${build_revision} to ${deploy_dir}"
