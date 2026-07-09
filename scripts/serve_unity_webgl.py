@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import functools
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
 
 
 class UnityWebGlHandler(SimpleHTTPRequestHandler):
@@ -22,7 +23,7 @@ class UnityWebGlHandler(SimpleHTTPRequestHandler):
         return super().guess_type(path)
 
     def end_headers(self) -> None:
-        if self.path.endswith(".gz"):
+        if urlsplit(self.path).path.endswith(".gz"):
             self.send_header("Content-Encoding", "gzip")
 
         self.send_header("Cross-Origin-Opener-Policy", "same-origin")

@@ -14,8 +14,9 @@ namespace HeavySuvPrototype
     [RequireComponent(typeof(NetworkManager), typeof(UnityTransport))]
     public sealed class MultiplayerBootstrap : MonoBehaviour
     {
-        public const ushort NetworkProtocolVersion = 6;
-        public const string PublicSessionId = "convoy-rally-public-v6";
+        public const ushort NetworkProtocolVersion = 7;
+        public const string PublicSessionId = "convoy-rally-public-v7";
+        public const string PreferredRelayRegion = "europe-north1";
         public const float GameplayReadyTimeoutSeconds = 18f;
         public const float HostMigrationTimeoutSeconds = 55f;
 
@@ -26,10 +27,12 @@ namespace HeavySuvPrototype
         public bool IsGameplayReady { get; private set; }
         public bool CanRetry => !connecting && !IsGameplayReady && retryRoutine == null;
         public int ConnectedCount => session == null ? OfflineConnectedCount : session.Players.Count;
+        public ulong CurrentRttMilliseconds => GetCurrentRttMilliseconds();
         public int OfflineConnectedCount { get; private set; }
 
         private readonly MultiplayerReadinessGate readiness = new MultiplayerReadinessGate();
         private NetworkManager networkManager;
+        private UnityTransport transport;
         private ISession session;
         private Coroutine retryRoutine;
         private Coroutine gameplayReadyTimeout;
@@ -43,7 +46,8 @@ namespace HeavySuvPrototype
             networkManager = GetComponent<NetworkManager>();
             networkManager.NetworkConfig.EnableSceneManagement = false;
             networkManager.NetworkConfig.ProtocolVersion = NetworkProtocolVersion;
-            UnityTransport transport = GetComponent<UnityTransport>();
+            networkManager.NetworkConfig.TickRate = MultiplayerNetworkTuning.TickRate;
+            transport = GetComponent<UnityTransport>();
             transport.UseWebSockets = true;
             networkManager.OnClientConnectedCallback += OnClientConnected;
             networkManager.OnClientDisconnectCallback += OnClientDisconnected;
@@ -110,7 +114,7 @@ namespace HeavySuvPrototype
                     MaxPlayers = MultiplayerCoordinator.MaximumParticipants,
                     IsPrivate = false
                 }
-                .WithRelayNetwork()
+                .WithRelayNetwork(new RelayNetworkOptions(PreferredRelayRegion, true))
                 .WithHostMigration(new ResetOnlyMigrationDataHandler())
                 .WithNetworkOptions(new NetworkOptions { RelayProtocol = RelayProtocol.WSS });
 
@@ -370,6 +374,32 @@ namespace HeavySuvPrototype
 
             StopCoroutine(hostMigrationTimeout);
             hostMigrationTimeout = null;
+        }
+
+        private ulong GetCurrentRttMilliseconds()
+        {
+            if (transport == null || networkManager == null || !networkManager.IsListening)
+            {
+                return 0;
+            }
+
+            if (!networkManager.IsServer)
+            {
+                return transport.GetCurrentRtt(NetworkManager.ServerClientId);
+            }
+
+            ulong maximumRtt = 0;
+            foreach (ulong clientId in networkManager.ConnectedClientsIds)
+            {
+                if (clientId == NetworkManager.ServerClientId)
+                {
+                    continue;
+                }
+
+                maximumRtt = Math.Max(maximumRtt, transport.GetCurrentRtt(clientId));
+            }
+
+            return maximumRtt;
         }
 
         private async void OnDestroy()

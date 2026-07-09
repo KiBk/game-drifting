@@ -89,8 +89,10 @@ namespace HeavySuvPrototype.Tests
             }
 
             Assert.AreEqual(8, positions.Count);
-            Assert.AreEqual(6, MultiplayerBootstrap.NetworkProtocolVersion);
-            StringAssert.EndsWith("-v6", MultiplayerBootstrap.PublicSessionId);
+            Assert.AreEqual(7, MultiplayerBootstrap.NetworkProtocolVersion);
+            StringAssert.EndsWith("-v7", MultiplayerBootstrap.PublicSessionId);
+            Assert.AreEqual("europe-north1", MultiplayerBootstrap.PreferredRelayRegion);
+            Assert.AreEqual(50u, MultiplayerNetworkTuning.TickRate);
         }
 
         [Test]
@@ -114,9 +116,22 @@ namespace HeavySuvPrototype.Tests
             Assert.NotNull(prefab.GetComponent<NetworkRigidbody>());
             Assert.NotNull(prefab.GetComponent<NetworkRallyCar>());
             Assert.AreEqual(MultiplayerCoordinator.NetworkVehicleLayer, prefab.layer);
+            NetworkTransform networkTransform = prefab.GetComponent<NetworkTransform>();
             Assert.AreEqual(
                 NetworkTransform.AuthorityModes.Owner,
-                prefab.GetComponent<NetworkTransform>().AuthorityMode);
+                networkTransform.AuthorityMode);
+            Assert.AreEqual(NetworkTransform.InterpolationTypes.Lerp, networkTransform.PositionInterpolationType);
+            Assert.AreEqual(NetworkTransform.InterpolationTypes.Lerp, networkTransform.RotationInterpolationType);
+            Assert.IsTrue(networkTransform.Interpolate);
+            Assert.IsTrue(networkTransform.UseUnreliableDeltas);
+            Assert.IsFalse(networkTransform.SyncScaleX);
+            Assert.IsFalse(networkTransform.SyncScaleY);
+            Assert.IsFalse(networkTransform.SyncScaleZ);
+            Assert.AreEqual(MultiplayerNetworkTuning.PositionThreshold, networkTransform.PositionThreshold, 0.0001f);
+            Assert.AreEqual(MultiplayerNetworkTuning.RotationThreshold, networkTransform.RotAngleThreshold, 0.0001f);
+            Assert.IsTrue(networkTransform.UseQuaternionSynchronization);
+            Assert.IsTrue(networkTransform.UseQuaternionCompression);
+            Assert.IsTrue(networkTransform.UseHalfFloatPrecision);
             Assert.AreEqual(
                 NetworkVariableWritePermission.Owner,
                 prefab.GetComponent<NetworkRallyCar>().ColorWritePermission);

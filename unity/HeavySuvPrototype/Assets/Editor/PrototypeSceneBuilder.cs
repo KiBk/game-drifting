@@ -59,8 +59,7 @@ namespace HeavySuvPrototype.Editor
             AssignPersistentMaterials(root);
             root.AddComponent<NetworkObject>();
             NetworkTransform networkTransform = root.AddComponent<NetworkTransform>();
-            networkTransform.AuthorityMode = NetworkTransform.AuthorityModes.Owner;
-            networkTransform.Interpolate = true;
+            MultiplayerNetworkTuning.Apply(networkTransform);
             root.AddComponent<NetworkRigidbody>();
             root.AddComponent<NetworkRallyCar>();
 
@@ -80,6 +79,7 @@ namespace HeavySuvPrototype.Editor
             networkManager.NetworkConfig.NetworkTransport = transport;
             networkManager.NetworkConfig.EnableSceneManagement = false;
             networkManager.NetworkConfig.ProtocolVersion = MultiplayerBootstrap.NetworkProtocolVersion;
+            networkManager.NetworkConfig.TickRate = MultiplayerNetworkTuning.TickRate;
 
             GameObject coordinatorObject = new GameObject("Multiplayer Coordinator");
             MultiplayerCoordinator coordinator = coordinatorObject.AddComponent<MultiplayerCoordinator>();

@@ -12,9 +12,15 @@ namespace HeavySuvPrototype
         private GUIStyle labelStyle;
         private GUIStyle titleStyle;
         private int watchedCarIndex = -1;
+        private float smoothedFrameTime = 1f / 60f;
 
         private void Update()
         {
+            if (Time.unscaledDeltaTime > 0f && Time.unscaledDeltaTime < 1f)
+            {
+                smoothedFrameTime = Mathf.Lerp(smoothedFrameTime, Time.unscaledDeltaTime, 0.05f);
+            }
+
             if (Input.GetKeyDown(KeyCode.Tab) && !HasLocalDriverCar())
             {
                 CycleCar(1);
@@ -57,21 +63,22 @@ namespace HeavySuvPrototype
             }
 
             GUI.Box(
-                new Rect(Screen.width * 0.5f - 190f, Screen.height - 122f, 380f, 72f),
-                $"{status}\nDrivers online: {connected}/{MultiplayerCoordinator.MaximumParticipants}",
+                new Rect(Screen.width * 0.5f - 210f, Screen.height - 144f, 420f, 94f),
+                $"{status}\nDrivers online: {connected}/{MultiplayerCoordinator.MaximumParticipants}\n{GetNetworkQualitySummary()}",
                 panelStyle);
         }
 
         private void DrawConnectionPanel(string status, int connected)
         {
             const float panelWidth = 420f;
-            const float panelHeight = 174f;
+            const float panelHeight = 198f;
             Rect panel = new Rect(Screen.width * 0.5f - panelWidth * 0.5f, 24f, panelWidth, panelHeight);
             GUI.Box(panel, string.Empty, panelStyle);
             GUILayout.BeginArea(new Rect(panel.x + 16f, panel.y + 12f, panel.width - 32f, panel.height - 24f));
             GUILayout.Label("Convoy Rally Online", titleStyle);
             GUILayout.Label(status, labelStyle);
             GUILayout.Label($"Room: {connected}/{MultiplayerCoordinator.MaximumParticipants} — every slot gets a car", labelStyle);
+            GUILayout.Label(GetNetworkQualitySummary(), labelStyle);
             if (GetCars().Count > 0)
             {
                 GUILayout.Label("Previewing an active car — Tab switches cars", labelStyle);
@@ -87,6 +94,19 @@ namespace HeavySuvPrototype
             }
 
             GUILayout.EndArea();
+        }
+
+        private string GetNetworkQualitySummary()
+        {
+            int framesPerSecond = Mathf.RoundToInt(1f / Mathf.Max(smoothedFrameTime, 0.001f));
+            if (bootstrap == null || !bootstrap.IsOnlineSession)
+            {
+                return $"Local | {framesPerSecond} FPS";
+            }
+
+            ulong rtt = bootstrap.CurrentRttMilliseconds;
+            string latency = rtt == 0 ? "Measuring RTT" : $"{rtt} ms RTT";
+            return $"{latency} | {MultiplayerNetworkTuning.TickRate} Hz network | {framesPerSecond} FPS";
         }
 
         private bool HasLocalDriverCar()

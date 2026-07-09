@@ -1,4 +1,5 @@
 using Unity.Netcode;
+using Unity.Netcode.Components;
 using UnityEngine;
 
 namespace HeavySuvPrototype
@@ -27,6 +28,7 @@ namespace HeavySuvPrototype
         private void Awake()
         {
             controller = GetComponent<HeavySuvVehicleController>();
+            MultiplayerNetworkTuning.Apply(GetComponent<NetworkTransform>());
         }
 
         public override void OnNetworkSpawn()
