@@ -14,6 +14,14 @@ namespace HeavySuvPrototype
         private int watchedCarIndex = -1;
         private float smoothedFrameTime = 1f / 60f;
 
+        public bool InviteDetailsVisible { get; private set; } = true;
+        public bool HasShareableInvite => HasHostInvite();
+
+        public void ToggleInviteDetails()
+        {
+            InviteDetailsVisible = !InviteDetailsVisible;
+        }
+
         private void Start()
         {
             if (IsMobileLayoutEnabled())
@@ -67,7 +75,7 @@ namespace HeavySuvPrototype
         {
             bool mobile = IsMobileLayoutEnabled();
             float panelWidth = mobile ? Mathf.Min(560f, Screen.width - 24f) : 560f;
-            bool showInvite = HasHostInvite();
+            bool showInvite = HasHostInvite() && InviteDetailsVisible;
             float panelHeight = showInvite ? 282f : 222f;
             Rect panel = new Rect(
                 Screen.width * 0.5f - panelWidth * 0.5f,
@@ -111,13 +119,22 @@ namespace HeavySuvPrototype
         private void DrawGameplayPanel(string status, int connected)
         {
             bool mobile = IsMobileLayoutEnabled();
+            bool hasInvite = HasHostInvite();
+            float scale = MobileControlLayout.GetUiScale(Screen.height);
+            float toolbarWidth = mobile
+                ? MobileControlLayout.GetToolbarReservedWidth(
+                    Screen.height,
+                    scale,
+                    hasInvite ? 3 : 2)
+                : 0f;
+            float mobileMargin = Mathf.Clamp(Screen.height * 0.025f, 8f, 18f);
             float panelWidth = mobile
-                ? Mathf.Min(620f, Mathf.Max(360f, Screen.width - 180f))
+                ? Mathf.Min(620f, Mathf.Max(240f, Screen.width - toolbarWidth - mobileMargin - 8f))
                 : 560f;
-            bool showInvite = HasHostInvite();
+            bool showInvite = hasInvite && InviteDetailsVisible;
             float panelHeight = showInvite ? 158f : 108f;
             Rect panel = mobile
-                ? new Rect(Screen.width * 0.5f - panelWidth * 0.5f, 12f, panelWidth, panelHeight)
+                ? new Rect(mobileMargin, 12f, panelWidth, panelHeight)
                 : new Rect(
                     Screen.width * 0.5f - panelWidth * 0.5f,
                     Screen.height - panelHeight - 36f,

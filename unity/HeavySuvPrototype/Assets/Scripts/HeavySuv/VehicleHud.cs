@@ -11,9 +11,11 @@ namespace HeavySuvPrototype
         private GUIStyle labelStyle;
         private GUIStyle touchControlStyle;
         private MultiplayerBootstrap bootstrap;
+        private MultiplayerHud multiplayerHud;
         private VehicleInputState mobileInput;
         private bool mobileControlsEnabled;
         private bool mobileStateInitialized;
+        private bool mobileDrivingControlsVisible;
         private bool mobilePanelOpen;
         private float mobilePanelVisibility;
 
@@ -24,6 +26,7 @@ namespace HeavySuvPrototype
         {
             controller = vehicleController;
             bootstrap ??= FindAnyObjectByType<MultiplayerBootstrap>();
+            multiplayerHud ??= FindAnyObjectByType<MultiplayerHud>();
             RefreshMobileMode();
         }
 
@@ -67,7 +70,7 @@ namespace HeavySuvPrototype
                 return;
             }
 
-            if (CanDrive())
+            if (CanDrive() && mobileDrivingControlsVisible)
             {
                 DrawTouchControls(MobileControlLayout.Calculate(Screen.width, Screen.height));
             }
@@ -77,7 +80,7 @@ namespace HeavySuvPrototype
                 DrawControlPanel(GetMobilePanelRect(scale), telemetry, scale);
             }
 
-            DrawMobilePanelToggle(scale);
+            DrawMobileToolbar(scale);
         }
 
         private void RefreshMobileMode()
@@ -93,6 +96,11 @@ namespace HeavySuvPrototype
 
             mobileStateInitialized = true;
             mobileControlsEnabled = enabled;
+            mobileDrivingControlsVisible = enabled && MobileControlLayout.ShouldShowControlsByDefault(
+                Application.isMobilePlatform,
+                Screen.width,
+                Screen.height,
+                Application.absoluteURL);
             mobilePanelOpen = !enabled;
             mobilePanelVisibility = enabled ? 0f : 1f;
             mobileInput = VehicleInputState.None;
@@ -106,6 +114,7 @@ namespace HeavySuvPrototype
         {
             mobileInput = VehicleInputState.None;
             if (!mobileControlsEnabled ||
+                !mobileDrivingControlsVisible ||
                 !MobileControlLayout.IsLandscape(Screen.width, Screen.height) ||
                 !CanDrive())
             {
@@ -136,7 +145,9 @@ namespace HeavySuvPrototype
 
         private void ApplyDrivingPointer(MobileControlRects controls, Vector2 guiPosition, float scale)
         {
-            if (GetMobilePanelToggleRect(scale).Contains(guiPosition) ||
+            if (MobileControlLayout.GetToolbarButtonRect(Screen.width, Screen.height, scale, 0).Contains(guiPosition) ||
+                MobileControlLayout.GetToolbarButtonRect(Screen.width, Screen.height, scale, 1).Contains(guiPosition) ||
+                MobileControlLayout.GetToolbarButtonRect(Screen.width, Screen.height, scale, 2).Contains(guiPosition) ||
                 (mobilePanelVisibility > 0.01f && GetMobilePanelRect(scale).Contains(guiPosition)))
             {
                 return;
@@ -153,7 +164,7 @@ namespace HeavySuvPrototype
 
         private static float GetMobileScale()
         {
-            return Mathf.Clamp(Screen.height / 520f, 0.82f, 1.35f);
+            return MobileControlLayout.GetUiScale(Screen.height);
         }
 
         private Rect GetMobilePanelRect(float scale)
@@ -173,21 +184,53 @@ namespace HeavySuvPrototype
                 Mathf.Max(260f, Screen.height - panelY - margin));
         }
 
-        private void DrawMobilePanelToggle(float scale)
+        private void DrawMobileToolbar(float scale)
         {
-            Rect button = GetMobilePanelToggleRect(scale);
-            if (GUI.Button(button, mobilePanelOpen ? "HIDE" : "CAR", buttonStyle))
+            Rect carButton = MobileControlLayout.GetToolbarButtonRect(
+                Screen.width,
+                Screen.height,
+                scale,
+                0);
+            if (GUI.Button(carButton, mobilePanelOpen ? "HIDE" : "CAR", buttonStyle))
             {
                 mobilePanelOpen = !mobilePanelOpen;
             }
-        }
 
-        private static Rect GetMobilePanelToggleRect(float scale)
-        {
-            float margin = Mathf.Clamp(Screen.height * 0.025f, 8f, 18f);
-            float width = Mathf.Clamp(88f * scale, 72f, 118f);
-            float height = Mathf.Clamp(52f * scale, 44f, 64f);
-            return new Rect(Screen.width - width - margin, margin, width, height);
+            Rect controlsButton = MobileControlLayout.GetToolbarButtonRect(
+                Screen.width,
+                Screen.height,
+                scale,
+                1);
+            if (GUI.Button(
+                    controlsButton,
+                    mobileDrivingControlsVisible ? "HIDE CTRL" : "CONTROLS",
+                    buttonStyle))
+            {
+                mobileDrivingControlsVisible = !mobileDrivingControlsVisible;
+                if (!mobileDrivingControlsVisible)
+                {
+                    mobileInput = VehicleInputState.None;
+                }
+            }
+
+            multiplayerHud ??= FindAnyObjectByType<MultiplayerHud>();
+            if (multiplayerHud == null || !multiplayerHud.HasShareableInvite)
+            {
+                return;
+            }
+
+            Rect linkButton = MobileControlLayout.GetToolbarButtonRect(
+                Screen.width,
+                Screen.height,
+                scale,
+                2);
+            if (GUI.Button(
+                    linkButton,
+                    multiplayerHud.InviteDetailsVisible ? "HIDE LINK" : "LINK",
+                    buttonStyle))
+            {
+                multiplayerHud.ToggleInviteDetails();
+            }
         }
 
         private void DrawTouchControls(MobileControlRects controls)

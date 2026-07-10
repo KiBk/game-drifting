@@ -13,10 +13,13 @@ asset churn while the gameplay-facing prototype moves to the rally format.
 - Procedural low, wide rally hatch with four visible wheels.
 - 1,550 kg Rigidbody chassis plus four WheelColliders.
 - Single-speed electric drive with rear-biased AWD and an RWD development toggle.
+- Torque-biasing limited-slip differentials between axles and across both the
+  front and rear axles, with bounded transfer to retain predictable handling.
 - Standard WheelCollider spring/friction behavior with compliant suspension,
   progressive grip loss, and traction-aware torque delivery.
 - Arrow-key throttle, brake/reverse, and steering.
-- Landscape phone controls with left-side steering and right-side gas, brake, and boost.
+- Landscape phone controls with left-side steering and right-side gas, brake,
+  and boost; touch boost also applies gas without changing keyboard Shift behavior.
 - Space handbrake.
 - `R`, `N`, `D`, and `A` remain as direction/drive selectors; there are no gears.
 - Shift directly activates a fixed full-power 1.65x boost while held.
@@ -54,7 +57,9 @@ Unity Cloud linking instructions are in `UGS_SETUP.md`.
 - Netcode's protocol version rejects incompatible cached builds.
 - When the host leaves, its Relay code expires and invited players can create a fresh room.
 - Web builds use Relay client-host networking over secure WebSockets.
-- Phone WebGL builds block portrait driving and collapse selector, AWD/RWD, sound, and respawn controls behind a `CAR` button.
+- Phone WebGL builds block portrait driving and expose separate toolbar toggles
+  for touch driving controls, the `CAR` panel, and the host invite link.
+- Touch-capable desktop browsers start with touch driving controls hidden.
 - Without a linked Unity Cloud project the build runs a local one-player fallback.
 
 ## Batch Commands

@@ -39,6 +39,22 @@ namespace HeavySuvPrototype
         [Range(0f, 1f)] public float motorTorqueAtMaximumSpeed = 0.18f;
         public float drivetrainReferenceWheelRadius = 0.34f;
         [Range(0f, 0.5f)] public float awdFrontTorqueShare = 0.4f;
+
+        [Header("Limited-Slip Differentials")]
+        [Range(0f, 1f)] public float centerDifferentialLock = 0.72f;
+        [Min(1f)] public float centerDifferentialMaxBiasRatio = 3.5f;
+        [Range(0f, 1f)] public float frontDifferentialLock = 0.48f;
+        [Min(1f)] public float frontDifferentialMaxBiasRatio = 2.5f;
+        [Range(0f, 1f)] public float rearDifferentialLock = 0.62f;
+        [Min(1f)] public float rearDifferentialMaxBiasRatio = 3.5f;
+        [Range(0f, 0.5f)] public float differentialTractionDeadband = 0.06f;
+        public float differentialSlipStart = 0.12f;
+        public float differentialSlipEnd = 0.8f;
+        public float differentialWheelSpeedDeltaStartMetersPerSecond = 1.2f;
+        public float differentialWheelSpeedDeltaEndMetersPerSecond = 10f;
+        [Range(0f, 0.25f)] public float differentialMinimumTraction = 0.04f;
+
+        [Header("Traction Control")]
         public float tractionSlipStart = 0.34f;
         public float tractionSlipEnd = 0.9f;
         [Range(0.2f, 1f)] public float minimumTractionDelivery = 0.4f;
@@ -73,6 +89,7 @@ namespace HeavySuvPrototype
         private bool previousDriveToggle;
         private ConvoyTurboController convoyTurbo;
         private VehicleHud vehicleHud;
+        private float[] wheelTorqueBuffer;
         private Vector3 respawnPosition;
         private Quaternion respawnRotation;
         private bool respawnPoseSet;
@@ -307,14 +324,16 @@ namespace HeavySuvPrototype
 
             float turboMultiplier = convoyTurbo == null ? 1f : convoyTurbo.TorqueMultiplier;
             drive.motorTorque *= TractionDelivery * turboMultiplier;
+            float[] wheelTorques = CalculateDifferentialWheelTorques(drive.motorTorque);
             BrakeLightsActive = drive.serviceBraking || input.handbrake;
             ReverseDriveActive = drive.reverseDriving;
             HandbrakeActive = input.handbrake;
             ActiveSelectorLabel = drive.activeSelectorLabel;
             AbsActive = false;
 
-            foreach (Wheel wheel in wheels)
+            for (int wheelIndex = 0; wheelIndex < wheels.Length; wheelIndex += 1)
             {
+                Wheel wheel = wheels[wheelIndex];
                 if (wheel?.collider == null)
                 {
                     continue;
@@ -328,7 +347,7 @@ namespace HeavySuvPrototype
                 float wheelGearingScale = GetWheelGearingScale(wheel);
                 wheel.collider.motorTorque =
                     IsDriven(wheel) && !(input.handbrake && !wheel.isFront)
-                        ? GetWheelTorque(wheel, drive.motorTorque) * wheelGearingScale
+                        ? wheelTorques[wheelIndex] * wheelGearingScale
                         : 0f;
                 wheel.collider.brakeTorque = ComputeBrakeTorque(
                     wheel,
@@ -502,22 +521,174 @@ namespace HeavySuvPrototype
             return radius / Mathf.Max(drivetrainReferenceWheelRadius, 0.001f);
         }
 
-        private float GetWheelTorque(Wheel wheel, float totalTorque)
+        private float[] CalculateDifferentialWheelTorques(float totalTorque)
         {
-            if (driveMode == DriveMode.Rwd)
+            if (wheelTorqueBuffer == null || wheelTorqueBuffer.Length != wheels.Length)
             {
-                int rearWheelCount = CountWheels(front: false);
-                return wheel.isFront || rearWheelCount == 0 ? 0f : totalTorque / rearWheelCount;
+                wheelTorqueBuffer = new float[wheels.Length];
             }
 
-            int axleWheelCount = CountWheels(wheel.isFront);
+            for (int wheelIndex = 0; wheelIndex < wheelTorqueBuffer.Length; wheelIndex += 1)
+            {
+                wheelTorqueBuffer[wheelIndex] = 0f;
+            }
+
+            float frontTorque = 0f;
+            float rearTorque = totalTorque;
+            if (driveMode == DriveMode.Awd)
+            {
+                float frontTraction = EstimateAxleTraction(
+                    front: true,
+                    frontDifferentialLock,
+                    frontDifferentialMaxBiasRatio);
+                float rearTraction = EstimateAxleTraction(
+                    front: false,
+                    rearDifferentialLock,
+                    rearDifferentialMaxBiasRatio);
+                DifferentialTorqueSplit centerSplit = RacingDifferential.SplitTorque(
+                    totalTorque,
+                    awdFrontTorqueShare,
+                    frontTraction,
+                    rearTraction,
+                    centerDifferentialLock,
+                    centerDifferentialMaxBiasRatio,
+                    differentialTractionDeadband);
+                frontTorque = centerSplit.firstTorque;
+                rearTorque = centerSplit.secondTorque;
+            }
+
+            DistributeAxleTorque(
+                wheelTorqueBuffer,
+                front: true,
+                frontTorque,
+                frontDifferentialLock,
+                frontDifferentialMaxBiasRatio);
+            DistributeAxleTorque(
+                wheelTorqueBuffer,
+                front: false,
+                rearTorque,
+                rearDifferentialLock,
+                rearDifferentialMaxBiasRatio);
+            return wheelTorqueBuffer;
+        }
+
+        private void DistributeAxleTorque(
+            float[] wheelTorques,
+            bool front,
+            float axleTorque,
+            float lockStrength,
+            float maximumBiasRatio)
+        {
+            int axleWheelCount = CountWheels(front);
+            int leftWheelIndex = FindWheelIndex(front, left: true);
+            int rightWheelIndex = FindWheelIndex(front, left: false);
+            if (axleWheelCount == 2 && leftWheelIndex >= 0 && rightWheelIndex >= 0)
+            {
+                DifferentialTorqueSplit axleSplit = RacingDifferential.SplitTorque(
+                    axleTorque,
+                    0.5f,
+                    EstimateWheelTraction(wheels[leftWheelIndex]),
+                    EstimateWheelTraction(wheels[rightWheelIndex]),
+                    lockStrength,
+                    maximumBiasRatio,
+                    differentialTractionDeadband);
+                wheelTorques[leftWheelIndex] = axleSplit.firstTorque;
+                wheelTorques[rightWheelIndex] = axleSplit.secondTorque;
+                return;
+            }
+
+            if (axleWheelCount == 0)
+            {
+                return;
+            }
+
+            float torquePerWheel = axleTorque / axleWheelCount;
+            for (int wheelIndex = 0; wheelIndex < wheels.Length; wheelIndex += 1)
+            {
+                Wheel wheel = wheels[wheelIndex];
+                if (wheel?.collider != null && wheel.isFront == front)
+                {
+                    wheelTorques[wheelIndex] = torquePerWheel;
+                }
+            }
+        }
+
+        private float EstimateAxleTraction(
+            bool front,
+            float lockStrength,
+            float maximumBiasRatio)
+        {
+            int axleWheelCount = CountWheels(front);
+            int leftWheelIndex = FindWheelIndex(front, left: true);
+            int rightWheelIndex = FindWheelIndex(front, left: false);
+            if (axleWheelCount == 2 && leftWheelIndex >= 0 && rightWheelIndex >= 0)
+            {
+                return RacingDifferential.EffectiveTraction(
+                    EstimateWheelTraction(wheels[leftWheelIndex]),
+                    EstimateWheelTraction(wheels[rightWheelIndex]),
+                    lockStrength,
+                    maximumBiasRatio);
+            }
+
             if (axleWheelCount == 0)
             {
                 return 0f;
             }
 
-            float axleShare = wheel.isFront ? awdFrontTorqueShare : 1f - awdFrontTorqueShare;
-            return totalTorque * axleShare / axleWheelCount;
+            float totalTraction = 0f;
+            for (int wheelIndex = 0; wheelIndex < wheels.Length; wheelIndex += 1)
+            {
+                Wheel wheel = wheels[wheelIndex];
+                if (wheel?.collider != null && wheel.isFront == front)
+                {
+                    totalTraction += EstimateWheelTraction(wheel);
+                }
+            }
+
+            return totalTraction / axleWheelCount;
+        }
+
+        private float EstimateWheelTraction(Wheel wheel)
+        {
+            float minimumTraction = Mathf.Clamp01(differentialMinimumTraction);
+            if (wheel?.collider == null || !wheel.collider.GetGroundHit(out WheelHit hit))
+            {
+                return minimumTraction;
+            }
+
+            float slipTraction = 1f - Mathf.InverseLerp(
+                differentialSlipStart,
+                Mathf.Max(differentialSlipEnd, differentialSlipStart + 0.01f),
+                Mathf.Abs(hit.forwardSlip));
+            float wheelSurfaceSpeed = Mathf.Abs(wheel.collider.rpm) *
+                2f * Mathf.PI * wheel.collider.radius / 60f;
+            float roadSpeed = Mathf.Abs(Vector3.Dot(
+                body.GetPointVelocity(hit.point),
+                hit.forwardDir));
+            float wheelSpeedTraction = 1f - Mathf.InverseLerp(
+                differentialWheelSpeedDeltaStartMetersPerSecond,
+                Mathf.Max(
+                    differentialWheelSpeedDeltaEndMetersPerSecond,
+                    differentialWheelSpeedDeltaStartMetersPerSecond + 0.01f),
+                Mathf.Abs(wheelSurfaceSpeed - roadSpeed));
+            return Mathf.Lerp(
+                minimumTraction,
+                1f,
+                Mathf.Clamp01(Mathf.Min(slipTraction, wheelSpeedTraction)));
+        }
+
+        private int FindWheelIndex(bool front, bool left)
+        {
+            for (int wheelIndex = 0; wheelIndex < wheels.Length; wheelIndex += 1)
+            {
+                Wheel wheel = wheels[wheelIndex];
+                if (wheel?.collider != null && wheel.isFront == front && wheel.isLeft == left)
+                {
+                    return wheelIndex;
+                }
+            }
+
+            return -1;
         }
 
         private int CountWheels(bool front)

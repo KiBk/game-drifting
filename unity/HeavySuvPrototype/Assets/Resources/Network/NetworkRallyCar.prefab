@@ -1716,6 +1716,18 @@ MonoBehaviour:
   motorTorqueAtMaximumSpeed: 0.18
   drivetrainReferenceWheelRadius: 0.34
   awdFrontTorqueShare: 0.4
+  centerDifferentialLock: 0.72
+  centerDifferentialMaxBiasRatio: 3.5
+  frontDifferentialLock: 0.48
+  frontDifferentialMaxBiasRatio: 2.5
+  rearDifferentialLock: 0.62
+  rearDifferentialMaxBiasRatio: 3.5
+  differentialTractionDeadband: 0.06
+  differentialSlipStart: 0.12
+  differentialSlipEnd: 0.8
+  differentialWheelSpeedDeltaStartMetersPerSecond: 1.2
+  differentialWheelSpeedDeltaEndMetersPerSecond: 10
+  differentialMinimumTraction: 0.04
   tractionSlipStart: 0.34
   tractionSlipEnd: 0.9
   minimumTractionDelivery: 0.4

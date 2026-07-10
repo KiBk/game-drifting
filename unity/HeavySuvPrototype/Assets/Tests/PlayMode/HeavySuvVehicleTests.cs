@@ -7,6 +7,57 @@ namespace HeavySuvPrototype.Tests
 {
     public sealed class HeavySuvVehicleTests
     {
+        [Test]
+        public void DifferentialPreservesNominalSplitAtEqualTraction()
+        {
+            DifferentialTorqueSplit split = RacingDifferential.SplitTorque(
+                6800f,
+                0.4f,
+                1f,
+                1f,
+                0.72f,
+                3.5f,
+                0.06f);
+
+            Assert.AreEqual(2720f, split.firstTorque, 0.01f);
+            Assert.AreEqual(4080f, split.secondTorque, 0.01f);
+        }
+
+        [Test]
+        public void DifferentialBiasesTorqueWithoutFullyDisconnectingSpinningSide()
+        {
+            DifferentialTorqueSplit split = RacingDifferential.SplitTorque(
+                6800f,
+                0.5f,
+                0.04f,
+                1f,
+                0.72f,
+                3.5f,
+                0.06f);
+
+            Assert.Greater(split.secondTorque, split.firstTorque);
+            Assert.Greater(split.firstTorque, 0f);
+            Assert.AreEqual(6800f, split.firstTorque + split.secondTorque, 0.01f);
+            Assert.LessOrEqual(split.secondTorque / split.firstTorque, 3.501f);
+        }
+
+        [Test]
+        public void DifferentialPreservesReverseTorqueDirection()
+        {
+            DifferentialTorqueSplit split = RacingDifferential.SplitTorque(
+                -3000f,
+                0.5f,
+                1f,
+                0.04f,
+                0.72f,
+                3.5f,
+                0.06f);
+
+            Assert.Less(split.firstTorque, 0f);
+            Assert.Less(split.secondTorque, 0f);
+            Assert.AreEqual(-3000f, split.firstTorque + split.secondTorque, 0.01f);
+        }
+
         [UnityTest]
         public IEnumerator StraightDriveMovesAlongLocalForward()
         {
@@ -202,6 +253,68 @@ namespace HeavySuvPrototype.Tests
             {
                 Assert.AreEqual(wheel.isFront ? 0f : expectedRearTorque, wheel.collider.motorTorque, 1f);
             }
+        }
+
+        [UnityTest]
+        public IEnumerator CenterDifferentialBiasesTorqueTowardGroundedAxle()
+        {
+            VehicleScenarioRunner runner = new VehicleScenarioRunner();
+            yield return runner.Create();
+            runner.Vehicle.SetDriveMode(DriveMode.Awd);
+            foreach (HeavySuvVehicleController.Wheel wheel in runner.Vehicle.wheels)
+            {
+                if (wheel.isFront)
+                {
+                    wheel.collider.transform.localPosition += Vector3.up * 2f;
+                }
+            }
+
+            Physics.SyncTransforms();
+            yield return runner.RunFor(Time.fixedDeltaTime, VehicleInputState.None);
+            yield return runner.RunFor(Time.fixedDeltaTime, VehicleScenarioRunner.Input(throttle: true));
+
+            float frontTorque = 0f;
+            float rearTorque = 0f;
+            foreach (HeavySuvVehicleController.Wheel wheel in runner.Vehicle.wheels)
+            {
+                if (wheel.isFront)
+                {
+                    frontTorque += wheel.collider.motorTorque;
+                }
+                else
+                {
+                    rearTorque += wheel.collider.motorTorque;
+                }
+            }
+
+            float nominalRearToFrontRatio =
+                (1f - runner.Vehicle.awdFrontTorqueShare) / runner.Vehicle.awdFrontTorqueShare;
+            Assert.Greater(rearTorque / frontTorque, nominalRearToFrontRatio + 0.1f);
+            Assert.Greater(frontTorque, 0f);
+            Assert.LessOrEqual(
+                rearTorque / frontTorque,
+                runner.Vehicle.centerDifferentialMaxBiasRatio + 0.01f);
+        }
+
+        [UnityTest]
+        public IEnumerator RearDifferentialBiasesTorqueTowardGroundedWheel()
+        {
+            VehicleScenarioRunner runner = new VehicleScenarioRunner();
+            yield return runner.Create();
+            runner.Vehicle.SetDriveMode(DriveMode.Rwd);
+            HeavySuvVehicleController.Wheel rearLeft = runner.Vehicle.wheels[2];
+            HeavySuvVehicleController.Wheel rearRight = runner.Vehicle.wheels[3];
+            rearLeft.collider.transform.localPosition += Vector3.up * 2f;
+
+            Physics.SyncTransforms();
+            yield return runner.RunFor(Time.fixedDeltaTime, VehicleInputState.None);
+            yield return runner.RunFor(Time.fixedDeltaTime, VehicleScenarioRunner.Input(throttle: true));
+
+            Assert.Greater(rearRight.collider.motorTorque, rearLeft.collider.motorTorque);
+            Assert.Greater(rearLeft.collider.motorTorque, 0f);
+            Assert.LessOrEqual(
+                rearRight.collider.motorTorque / rearLeft.collider.motorTorque,
+                runner.Vehicle.rearDifferentialMaxBiasRatio + 0.01f);
         }
 
         [UnityTest]

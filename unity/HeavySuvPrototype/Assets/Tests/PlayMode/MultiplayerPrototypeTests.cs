@@ -131,13 +131,12 @@ namespace HeavySuvPrototype.Tests
         }
 
         [Test]
-        public void MobileControlsSupportSteeringThrottleAndBoostTogether()
+        public void MobileBoostAppliesThrottleWhilePressed()
         {
             MobileControlRects controls = MobileControlLayout.Calculate(844f, 390f);
             VehicleInputState input = VehicleInputState.None;
 
             MobileControlLayout.ApplyPointer(ref input, controls, controls.SteerLeft.center);
-            MobileControlLayout.ApplyPointer(ref input, controls, controls.Throttle.center);
             MobileControlLayout.ApplyPointer(ref input, controls, controls.Boost.center);
 
             Assert.IsTrue(input.steerLeft);
@@ -148,6 +147,17 @@ namespace HeavySuvPrototype.Tests
             Assert.IsFalse(controls.SteerRight.Overlaps(controls.Brake));
             Assert.IsFalse(controls.Brake.Overlaps(controls.Throttle));
             Assert.IsFalse(controls.Boost.Overlaps(controls.Throttle));
+        }
+
+        [Test]
+        public void TurboInputDoesNotImplicitlyApplyThrottle()
+        {
+            VehicleInputState keyboard = new VehicleInputState { turbo = true };
+
+            VehicleInputState merged = VehicleInputState.Merge(keyboard, VehicleInputState.None);
+
+            Assert.IsTrue(merged.turbo);
+            Assert.IsFalse(merged.throttle);
         }
 
         [Test]
@@ -165,6 +175,34 @@ namespace HeavySuvPrototype.Tests
                 false,
                 false,
                 "https://drifting.chronos.kibk.net/"));
+            Assert.IsTrue(MobileControlLayout.ShouldShowControlsByDefault(
+                false,
+                844f,
+                390f,
+                string.Empty));
+            Assert.IsFalse(MobileControlLayout.ShouldShowControlsByDefault(
+                false,
+                960f,
+                600f,
+                string.Empty));
+            Assert.IsTrue(MobileControlLayout.ShouldShowControlsByDefault(
+                false,
+                960f,
+                600f,
+                "https://drifting.chronos.kibk.net/?touchControls=1"));
+        }
+
+        [Test]
+        public void MobileToolbarButtonsDoNotOverlap()
+        {
+            float scale = MobileControlLayout.GetUiScale(390f);
+            Rect car = MobileControlLayout.GetToolbarButtonRect(844f, 390f, scale, 0);
+            Rect controls = MobileControlLayout.GetToolbarButtonRect(844f, 390f, scale, 1);
+            Rect link = MobileControlLayout.GetToolbarButtonRect(844f, 390f, scale, 2);
+
+            Assert.IsFalse(car.Overlaps(controls));
+            Assert.IsFalse(controls.Overlaps(link));
+            Assert.GreaterOrEqual(link.x, 0f);
         }
 
         [Test]
