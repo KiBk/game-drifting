@@ -1583,6 +1583,7 @@ GameObject:
   - component: {fileID: 5537832951747111153}
   - component: {fileID: 4607780510767920319}
   - component: {fileID: 4441607965926991052}
+  - component: {fileID: 7440579129247990907}
   - component: {fileID: 4556820965029326866}
   - component: {fileID: 7977853809804404507}
   - component: {fileID: 6065727289721700578}
@@ -1695,7 +1696,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 414553920b81b46be9a5ce73c592c44e, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: HeavySuvPrototype::HeavySuvPrototype.HeavySuvVehicleController
   useKeyboardInput: 1
   massKg: 1550
@@ -1741,10 +1742,20 @@ MonoBehaviour:
   absSlipStart: 0.18
   absSlipEnd: 0.55
   absMinimumBrakeDelivery: 0.18
-  maxSteerAngle: 23
+  maxSteerAngle: 58
+  assistedManualSteerAngle: 27
   steerFadeStartKmh: 8
   steerFadeEndKmh: 72
   highSpeedSteerFactor: 0.22
+  countersteerEnabled: 1
+  countersteerMinimumSpeedKmh: 12
+  countersteerEngageSlipDegrees: 3.5
+  countersteerFullSlipDegrees: 18
+  countersteerSlipGain: 1.55
+  countersteerSlipRateGain: 0.035
+  countersteerYawDamping: 0.18
+  countersteerResponseDegreesPerSecond: 280
+  countersteerManualAuthority: 0.55
   automaticRespawnDropMeters: 8
   wheels:
   - name: Front Left
@@ -1767,6 +1778,28 @@ MonoBehaviour:
     isLeft: 0
     collider: {fileID: 129908547406658609}
     visual: {fileID: 3594065452628596997}
+--- !u!114 &7440579129247990907
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3403199347484728894}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6f0b97d78e64842dea0acf65c8d76eb6, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: HeavySuvPrototype::HeavySuvPrototype.VehicleAppearanceController
+  proceduralVisuals:
+  - {fileID: 3763750537649794817}
+  - {fileID: 3456421897384012480}
+  - {fileID: 1537781579162811908}
+  - {fileID: 177167194306470850}
+  - {fileID: 1812090843345015157}
+  - {fileID: 6787919824530075034}
+  - {fileID: 7118637987026884726}
+  - {fileID: 8743218854864726412}
+  bodyStyle: 0
 --- !u!114 &4556820965029326866
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1933,6 +1966,7 @@ MonoBehaviour:
   masterVolume: 0.78
   tireSquealVolume: 0.28
   tireLockVolume: 0.32
+  asphaltScrubVolume: 0.24
 --- !u!114 &5136157559449184825
 MonoBehaviour:
   m_ObjectHideFlags: 0

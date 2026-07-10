@@ -26,13 +26,13 @@ namespace HeavySuvPrototype
         public static void CreateEnvironment()
         {
             Physics.gravity = new Vector3(0f, -9.81f, 0f);
-            Material groundMaterial = PrototypeMaterialFactory.CreateLit(new Color(0.32f, 0.42f, 0.39f));
+            Material groundMaterial = PrototypeMaterialFactory.CreateAsphalt();
             GameObject ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
             ground.name = "Flat Ground";
             ground.transform.localScale = new Vector3(18f, 1f, 18f);
             ground.GetComponent<Renderer>().sharedMaterial = groundMaterial;
 
-            Material lineMaterial = PrototypeMaterialFactory.CreateLit(new Color(0.54f, 0.62f, 0.58f));
+            Material lineMaterial = PrototypeMaterialFactory.CreateLit(new Color(0.62f, 0.59f, 0.48f));
 
             for (int i = -18; i <= 18; i += 1)
             {
@@ -71,7 +71,9 @@ namespace HeavySuvPrototype
             controller.wheels[2] = CreateWheel(root.transform, "Rear Left", false, true, -0.825f, -1.3f);
             controller.wheels[3] = CreateWheel(root.transform, "Rear Right", false, false, 0.825f, -1.3f);
 
-            CreateChassisVisual(root.transform);
+            GameObject[] rallyBodyVisuals = CreateChassisVisual(root.transform);
+            VehicleAppearanceController appearance = root.AddComponent<VehicleAppearanceController>();
+            appearance.Bind(rallyBodyVisuals);
             CreateBrakeLights(root.transform, controller);
             controller.EnsureInitialized();
             VehicleTelemetry telemetry = root.AddComponent<VehicleTelemetry>();
@@ -187,23 +189,26 @@ namespace HeavySuvPrototype
             RemoveCollider(spoke);
         }
 
-        private static void CreateChassisVisual(Transform parent)
+        private static GameObject[] CreateChassisVisual(Transform parent)
         {
             Material bodyMaterial = CreateMaterial(new Color(0.82f, 0.16f, 0.08f));
             Material darkBodyMaterial = CreateMaterial(new Color(0.23f, 0.045f, 0.025f));
             Material glassMaterial = CreateMaterial(new Color(0.08f, 0.15f, 0.19f));
 
-            CreateBodyPart(parent, "Rally Hatch Lower Body", bodyMaterial, new Vector3(0f, 0.18f, 0f), new Vector3(1.86f, 0.4f, 3.76f));
-            CreateBodyPart(parent, "Rally Hatch Hood", bodyMaterial, new Vector3(0f, 0.44f, 1.2f), new Vector3(1.7f, 0.2f, 1.24f), -4f);
-            CreateBodyPart(parent, "Rally Hatch Roof", bodyMaterial, new Vector3(0f, 0.8f, -0.22f), new Vector3(1.48f, 0.16f, 1.35f));
-            CreateBodyPart(parent, "Rally Hatch Cabin", glassMaterial, new Vector3(0f, 0.62f, -0.08f), new Vector3(1.5f, 0.5f, 1.55f), 3f);
-            CreateBodyPart(parent, "Rally Hatch Rear", bodyMaterial, new Vector3(0f, 0.47f, -1.43f), new Vector3(1.72f, 0.45f, 0.72f), 4f);
-            CreateBodyPart(parent, "Front Bumper", darkBodyMaterial, new Vector3(0f, 0.12f, 1.91f), new Vector3(1.78f, 0.18f, 0.12f));
-            CreateBodyPart(parent, "Rear Bumper", darkBodyMaterial, new Vector3(0f, 0.11f, -1.91f), new Vector3(1.78f, 0.18f, 0.12f));
-            CreateBodyPart(parent, "Rear Spoiler", darkBodyMaterial, new Vector3(0f, 0.71f, -1.73f), new Vector3(1.48f, 0.08f, 0.34f), -6f);
+            return new[]
+            {
+                CreateBodyPart(parent, "Rally Hatch Lower Body", bodyMaterial, new Vector3(0f, 0.18f, 0f), new Vector3(1.86f, 0.4f, 3.76f)),
+                CreateBodyPart(parent, "Rally Hatch Hood", bodyMaterial, new Vector3(0f, 0.44f, 1.2f), new Vector3(1.7f, 0.2f, 1.24f), -4f),
+                CreateBodyPart(parent, "Rally Hatch Roof", bodyMaterial, new Vector3(0f, 0.8f, -0.22f), new Vector3(1.48f, 0.16f, 1.35f)),
+                CreateBodyPart(parent, "Rally Hatch Cabin", glassMaterial, new Vector3(0f, 0.62f, -0.08f), new Vector3(1.5f, 0.5f, 1.55f), 3f),
+                CreateBodyPart(parent, "Rally Hatch Rear", bodyMaterial, new Vector3(0f, 0.47f, -1.43f), new Vector3(1.72f, 0.45f, 0.72f), 4f),
+                CreateBodyPart(parent, "Front Bumper", darkBodyMaterial, new Vector3(0f, 0.12f, 1.91f), new Vector3(1.78f, 0.18f, 0.12f)),
+                CreateBodyPart(parent, "Rear Bumper", darkBodyMaterial, new Vector3(0f, 0.11f, -1.91f), new Vector3(1.78f, 0.18f, 0.12f)),
+                CreateBodyPart(parent, "Rear Spoiler", darkBodyMaterial, new Vector3(0f, 0.71f, -1.73f), new Vector3(1.48f, 0.08f, 0.34f), -6f)
+            };
         }
 
-        private static void CreateBodyPart(
+        private static GameObject CreateBodyPart(
             Transform parent,
             string name,
             Material material,
@@ -219,6 +224,7 @@ namespace HeavySuvPrototype
             part.transform.localScale = scale;
             part.GetComponent<Renderer>().sharedMaterial = material;
             RemoveCollider(part);
+            return part;
         }
 
         private static void CreateBrakeLights(Transform parent, HeavySuvVehicleController controller)

@@ -10,17 +10,22 @@ namespace HeavySuvPrototype
         [Range(0f, 1f)] public float masterVolume = 0.78f;
         [Range(0f, 1f)] public float tireSquealVolume = 0.28f;
         [Range(0f, 1f)] public float tireLockVolume = 0.32f;
+        [Range(0f, 1f)] public float asphaltScrubVolume = 0.24f;
 
+        private static AudioClip sharedAsphaltScrubClip;
         private AudioSource motorLowSource;
         private AudioSource motorHighSource;
         private AudioSource rollingSource;
         private AudioSource spinSource;
         private AudioSource lockSource;
+        private AudioSource asphaltScrubSource;
 
         public bool UsesExternalClips { get; private set; }
+        public bool UsesAsphaltScrub { get; private set; }
         public float RollingLevel { get; private set; }
         public float SpinLevel { get; private set; }
         public float LockLevel { get; private set; }
+        public float AsphaltScrubLevel { get; private set; }
         public float EffectsVolume => masterVolume;
 
         public void Bind(HeavySuvVehicleController vehicleController)
@@ -40,18 +45,22 @@ namespace HeavySuvPrototype
             rollingSource = gameObject.AddComponent<AudioSource>();
             spinSource = gameObject.AddComponent<AudioSource>();
             lockSource = gameObject.AddComponent<AudioSource>();
+            asphaltScrubSource = gameObject.AddComponent<AudioSource>();
 
             AudioClip motorLow = Resources.Load<AudioClip>("Audio/ev_motor_low");
             AudioClip motorHigh = Resources.Load<AudioClip>("Audio/ev_motor_high");
             AudioClip rolling = Resources.Load<AudioClip>("Audio/tire_rolling");
             AudioClip squeal = Resources.Load<AudioClip>("Audio/tire_squeal");
+            sharedAsphaltScrubClip ??= CreateAsphaltScrubClip();
             UsesExternalClips = motorLow != null && motorHigh != null && rolling != null && squeal != null;
+            UsesAsphaltScrub = sharedAsphaltScrubClip != null;
 
             ConfigureSource(motorLowSource, motorLow ?? CreateToneClip("EV Motor Low Fallback", 110f), 0.02f);
             ConfigureSource(motorHighSource, motorHigh ?? CreateToneClip("EV Motor High Fallback", 310f), 0f);
             ConfigureSource(rollingSource, rolling ?? CreateNoiseClip("Tire Rolling Fallback", 0.18f), 0f);
             ConfigureSource(spinSource, squeal ?? CreateNoiseClip("Tire Spin Fallback", 0.4f), 0f);
             ConfigureSource(lockSource, squeal ?? CreateNoiseClip("Tire Lock Fallback", 0.4f), 0f);
+            ConfigureSource(asphaltScrubSource, sharedAsphaltScrubClip, 0f);
         }
 
         private void OnEnable()
@@ -61,6 +70,7 @@ namespace HeavySuvPrototype
             Play(rollingSource);
             Play(spinSource);
             Play(lockSource);
+            Play(asphaltScrubSource);
         }
 
         private void Update()
@@ -99,6 +109,17 @@ namespace HeavySuvPrototype
             SpinLevel = Mathf.Clamp01(Mathf.Max(drivenSpin, lateralSlip * 0.82f));
             spinSource.pitch = Mathf.Lerp(0.78f, 1.38f, SpinLevel) + speed01 * 0.08f;
             spinSource.volume = masterVolume * Mathf.Pow(SpinLevel, 1.25f) * tireSquealVolume;
+
+            AsphaltScrubLevel = groundedRatio *
+                                 Mathf.Clamp01(Mathf.Max(lateralSlip, drivenSpin * 0.55f)) *
+                                 Mathf.InverseLerp(5f, 38f, speedKmh);
+            asphaltScrubSource.pitch = Mathf.Lerp(
+                0.78f,
+                1.34f,
+                Mathf.Clamp01(speed01 * 0.65f + AsphaltScrubLevel * 0.35f));
+            asphaltScrubSource.volume = masterVolume *
+                                         Mathf.Pow(AsphaltScrubLevel, 0.9f) *
+                                         asphaltScrubVolume;
 
             LockLevel = Mathf.Clamp01(lockedSlip);
             lockSource.pitch = Mathf.Lerp(0.62f, 0.92f, Mathf.InverseLerp(8f, 90f, speedKmh));
@@ -199,6 +220,61 @@ namespace HeavySuvPrototype
             }
 
             AudioClip clip = AudioClip.Create(name, samples.Length, 1, sampleRate, false);
+            clip.SetData(samples, 0);
+            return clip;
+        }
+
+        private static AudioClip CreateAsphaltScrubClip()
+        {
+            const int sampleRate = 22050;
+            const int sampleCount = sampleRate * 2;
+            float[] samples = new float[sampleCount];
+            System.Random random = new System.Random(19790527);
+            for (int layer = 0; layer < 18; layer += 1)
+            {
+                int cycles = random.Next(45, 760);
+                float phase = (float)random.NextDouble() * Mathf.PI * 2f;
+                float amplitude = 1f / (1f + layer * 0.22f);
+                for (int sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1)
+                {
+                    float loopPhase = sampleIndex / (float)sampleCount;
+                    samples[sampleIndex] += Mathf.Sin(
+                        loopPhase * cycles * Mathf.PI * 2f + phase) * amplitude;
+                }
+            }
+
+            for (int grain = 0; grain < 96; grain += 1)
+            {
+                int center = random.Next(0, sampleCount);
+                int width = random.Next(22, 140);
+                float amplitude = Mathf.Lerp(0.3f, 1f, (float)random.NextDouble());
+                for (int offset = -width; offset <= width; offset += 1)
+                {
+                    int sampleIndex = (center + offset + sampleCount) % sampleCount;
+                    float envelope = 1f - Mathf.Abs(offset) / (float)width;
+                    samples[sampleIndex] += envelope * envelope * amplitude *
+                                            Mathf.Sin(offset * 0.73f);
+                }
+            }
+
+            float peak = 0f;
+            foreach (float sample in samples)
+            {
+                peak = Mathf.Max(peak, Mathf.Abs(sample));
+            }
+
+            float normalization = peak > 0f ? 0.32f / peak : 1f;
+            for (int sampleIndex = 0; sampleIndex < samples.Length; sampleIndex += 1)
+            {
+                samples[sampleIndex] *= normalization;
+            }
+
+            AudioClip clip = AudioClip.Create(
+                "Procedural Asphalt Tire Scrub",
+                samples.Length,
+                1,
+                sampleRate,
+                false);
             clip.SetData(samples, 0);
             return clip;
         }

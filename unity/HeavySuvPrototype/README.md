@@ -24,7 +24,14 @@ asset churn while the gameplay-facing prototype moves to the rally format.
 - `R`, `N`, `D`, and `A` remain as direction/drive selectors; there are no gears.
 - Shift directly activates a fixed full-power 1.65x boost while held.
 - `D` toggles AWD/RWD.
-- Manual steering without countersteer assistance.
+- Direct manual steering remains available when countersteer assistance is disabled.
+- Optional slip/yaw-based countersteer assist with rate-limited opposite lock
+  and a direct-steering `OFF` mode.
+- 58-degree physical front steering lock, with a calmer 27-degree manual range
+  while assist is enabled.
+- Runtime `RALLY`/`SPORT` body selection synchronized across the network; the
+  alternate sports hatch body comes from Kenney's CC0 Car Kit 3.1.
+- Rough procedural asphalt rendering and layered asphalt tire-scrub audio.
 - Per-wheel ABS reduces service-brake pressure when a tire begins locking;
   the rear handbrake remains unassisted for drift initiation.
 - Layered open-source electric-motor, tire-rolling, wheelspin, and locked-tire audio.
@@ -43,6 +50,8 @@ See `CONVOY_RALLY.md` for the planned two-player stage format and the future
 multiplayer progress contract.
 
 Audio sources and licenses are listed in `Assets/Resources/Audio/CREDITS.md`.
+Countersteer research and implementation rationale are in
+`COUNTERSTEER_RESEARCH.md`.
 Unity Cloud linking instructions are in `UGS_SETUP.md`.
 
 ## Multiplayer

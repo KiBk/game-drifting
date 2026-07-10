@@ -18,6 +18,7 @@ namespace HeavySuvPrototype
         private bool mobileDrivingControlsVisible;
         private bool mobilePanelOpen;
         private float mobilePanelVisibility;
+        private Vector2 controlPanelScroll;
 
         public VehicleInputState MobileInput => mobileInput;
         public bool MobileControlsEnabled => mobileControlsEnabled;
@@ -64,7 +65,7 @@ namespace HeavySuvPrototype
             if (!mobileControlsEnabled)
             {
                 DrawControlPanel(
-                    new Rect(Screen.width - 308f, 16f, 292f, 318f),
+                    new Rect(Screen.width - 328f, 16f, 312f, 420f),
                     telemetry,
                     scale);
                 return;
@@ -260,6 +261,10 @@ namespace HeavySuvPrototype
                 panel.y + 12f * scale,
                 panel.width - padding * 2f,
                 panel.height - 24f * scale));
+            controlPanelScroll = GUILayout.BeginScrollView(
+                controlPanelScroll,
+                false,
+                false);
             GUILayout.Label("Drive selector", labelStyle);
             GUILayout.BeginHorizontal();
             DrawSelectorButton("R", DriveSelectorMode.Reverse, scale);
@@ -275,8 +280,29 @@ namespace HeavySuvPrototype
             GUILayout.EndHorizontal();
 
             GUILayout.Space(8f * scale);
+            GUILayout.Label("Countersteer assist", labelStyle);
+            GUILayout.BeginHorizontal();
+            DrawCountersteerButton("ON", true, scale);
+            DrawCountersteerButton("OFF", false, scale);
+            GUILayout.EndHorizontal();
+
+            VehicleAppearanceController appearance = controller.GetComponent<VehicleAppearanceController>();
+            if (appearance != null)
+            {
+                GUILayout.Space(8f * scale);
+                GUILayout.Label("Car body", labelStyle);
+                GUILayout.BeginHorizontal();
+                DrawBodyStyleButton("RALLY", VehicleBodyStyle.RallyHatch, appearance, scale);
+                DrawBodyStyleButton("SPORT", VehicleBodyStyle.KenneySport, appearance, scale);
+                GUILayout.EndHorizontal();
+            }
+
+            GUILayout.Space(8f * scale);
             GUILayout.Label($"Mode: {(telemetry.driveMode == DriveMode.Awd ? "AWD" : "RWD")}   Selector: {telemetry.activeSelectorLabel}", labelStyle);
             GUILayout.Label($"ABS: {(controller.AbsActive ? "ACTIVE" : "On")}", labelStyle);
+            GUILayout.Label(
+                $"Countersteer: {(controller.CountersteerActive ? $"{controller.CurrentCountersteerAngle:+0;-0;0}°" : controller.countersteerEnabled ? "ready" : "off")}",
+                labelStyle);
 
             ConvoyTurboController turbo = controller.ConvoyTurbo;
             if (turbo != null)
@@ -304,6 +330,7 @@ namespace HeavySuvPrototype
                 controller.RespawnAtStart();
             }
 
+            GUILayout.EndScrollView();
             GUILayout.EndArea();
         }
 
@@ -322,6 +349,40 @@ namespace HeavySuvPrototype
             if (GUILayout.Button(label, driveStyle, GUILayout.Width(84f * scale)))
             {
                 controller.SetDriveMode(mode);
+            }
+        }
+
+        private void DrawCountersteerButton(string label, bool enabled, float scale)
+        {
+            GUIStyle assistStyle = controller.countersteerEnabled == enabled
+                ? selectedButtonStyle
+                : buttonStyle;
+            if (GUILayout.Button(label, assistStyle, GUILayout.Width(84f * scale)))
+            {
+                controller.SetCountersteerEnabled(enabled);
+            }
+        }
+
+        private void DrawBodyStyleButton(
+            string label,
+            VehicleBodyStyle style,
+            VehicleAppearanceController appearance,
+            float scale)
+        {
+            GUIStyle bodyStyle = appearance.BodyStyle == style ? selectedButtonStyle : buttonStyle;
+            if (!GUILayout.Button(label, bodyStyle, GUILayout.Width(96f * scale)))
+            {
+                return;
+            }
+
+            NetworkRallyCar networkCar = controller.GetComponent<NetworkRallyCar>();
+            if (networkCar != null && networkCar.IsSpawned)
+            {
+                networkCar.SetBodyStyle(style);
+            }
+            else
+            {
+                appearance.SetBodyStyle(style);
             }
         }
 

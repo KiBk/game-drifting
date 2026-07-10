@@ -90,7 +90,7 @@ namespace HeavySuvPrototype.Tests
             }
 
             Assert.AreEqual(8, positions.Count);
-            Assert.AreEqual(7, MultiplayerBootstrap.NetworkProtocolVersion);
+            Assert.AreEqual(8, MultiplayerBootstrap.NetworkProtocolVersion);
             Assert.AreEqual("join", MultiplayerInvite.QueryParameter);
             Assert.AreEqual("europe-north1", MultiplayerBootstrap.PreferredRelayRegion);
             Assert.AreEqual("wss", MultiplayerBootstrap.RelayConnectionType);
@@ -244,7 +244,12 @@ namespace HeavySuvPrototype.Tests
             Assert.NotNull(prefab);
             Assert.NotNull(prefab.GetComponent<NetworkObject>());
             Assert.NotNull(prefab.GetComponent<NetworkRigidbody>());
-            Assert.NotNull(prefab.GetComponent<NetworkRallyCar>());
+            NetworkRallyCar rallyCar = prefab.GetComponent<NetworkRallyCar>();
+            Assert.NotNull(rallyCar);
+            Assert.NotNull(prefab.GetComponent<VehicleAppearanceController>());
+            Assert.AreEqual(
+                NetworkVariableWritePermission.Owner,
+                rallyCar.BodyStyleWritePermission);
             Assert.AreEqual(MultiplayerCoordinator.NetworkVehicleLayer, prefab.layer);
             NetworkTransform networkTransform = prefab.GetComponent<NetworkTransform>();
             Assert.AreEqual(

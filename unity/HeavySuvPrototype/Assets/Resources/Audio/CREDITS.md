@@ -14,3 +14,6 @@ The prototype loads these clips from `Resources/Audio` and layers them at runtim
   License: https://creativecommons.org/licenses/by/3.0/
 
 The motor-high and tire-squeal files were converted to mono 44.1 kHz PCM for this Unity prototype.
+
+The additional rough asphalt scrub layer is generated procedurally at runtime
+by `VehicleAudio`; it does not contain or derive from an external recording.

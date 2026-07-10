@@ -20,6 +20,13 @@ status and invite window. Touch `BOOST` also applies gas, while keyboard Shift
 remains boost-only. Touch-capable desktop browsers keep the toolbar but start
 with the driving controls hidden.
 
+The car menu also provides optional countersteer assistance and a synchronized
+`RALLY`/`SPORT` body selector. Countersteer uses up to 58 degrees of front-wheel
+lock when a slide develops; disabling it restores direct steering. The test
+surface now uses rough procedural asphalt with a separate tire-scrub audio layer.
+The research and tuning rationale is documented in
+`unity/HeavySuvPrototype/COUNTERSTEER_RESEARCH.md`.
+
 ## Update the WebGL deployment snapshot
 
 Build the Unity project as documented in

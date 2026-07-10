@@ -72,10 +72,20 @@ namespace HeavySuvPrototype
         [Range(0f, 1f)] public float absMinimumBrakeDelivery = 0.18f;
 
         [Header("Steering")]
-        public float maxSteerAngle = 23f;
+        public float maxSteerAngle = 58f;
+        public float assistedManualSteerAngle = 27f;
         public float steerFadeStartKmh = 8f;
         public float steerFadeEndKmh = 72f;
         public float highSpeedSteerFactor = 0.22f;
+        public bool countersteerEnabled = true;
+        public float countersteerMinimumSpeedKmh = 12f;
+        public float countersteerEngageSlipDegrees = 3.5f;
+        public float countersteerFullSlipDegrees = 18f;
+        public float countersteerSlipGain = 1.55f;
+        public float countersteerSlipRateGain = 0.035f;
+        public float countersteerYawDamping = 0.18f;
+        public float countersteerResponseDegreesPerSecond = 280f;
+        [Range(0f, 1f)] public float countersteerManualAuthority = 0.55f;
 
         [Header("Respawn")]
         public float automaticRespawnDropMeters = 8f;
@@ -90,6 +100,8 @@ namespace HeavySuvPrototype
         private ConvoyTurboController convoyTurbo;
         private VehicleHud vehicleHud;
         private float[] wheelTorqueBuffer;
+        private float previousSlipAngleDegrees;
+        private bool slipStateInitialized;
         private Vector3 respawnPosition;
         private Quaternion respawnRotation;
         private bool respawnPoseSet;
@@ -113,6 +125,8 @@ namespace HeavySuvPrototype
         public float LastDrivenWheelSlip { get; private set; }
         public float TractionDelivery { get; private set; } = 1f;
         public float VehicleSlipAngleDegrees { get; private set; }
+        public float CurrentCountersteerAngle { get; private set; }
+        public bool CountersteerActive => countersteerEnabled && Mathf.Abs(CurrentCountersteerAngle) > 0.5f;
         public bool AbsActive { get; private set; }
 
         private void Awake()
@@ -191,6 +205,15 @@ namespace HeavySuvPrototype
             selectorMode = mode;
         }
 
+        public void SetCountersteerEnabled(bool enabled)
+        {
+            countersteerEnabled = enabled;
+            if (!enabled)
+            {
+                CurrentCountersteerAngle = 0f;
+            }
+        }
+
         public void ToggleDriveMode()
         {
             driveMode = driveMode == DriveMode.Awd ? DriveMode.Rwd : DriveMode.Awd;
@@ -224,6 +247,9 @@ namespace HeavySuvPrototype
             LastDrivenWheelSlip = 0f;
             TractionDelivery = 1f;
             VehicleSlipAngleDegrees = 0f;
+            CurrentCountersteerAngle = 0f;
+            previousSlipAngleDegrees = 0f;
+            slipStateInitialized = false;
             foreach (Wheel wheel in wheels)
             {
                 if (wheel?.collider == null)
@@ -307,11 +333,47 @@ namespace HeavySuvPrototype
             float motorSpeedKmh = Mathf.Max(speedKmh, AverageDrivenWheelSurfaceSpeedKmh());
             float steerInput = (input.steerRight ? 1f : 0f) - (input.steerLeft ? 1f : 0f);
             VehicleSlipAngleDegrees = ComputeSignedSlipAngleDegrees();
+            float slipRateDegreesPerSecond = slipStateInitialized
+                ? Mathf.DeltaAngle(previousSlipAngleDegrees, VehicleSlipAngleDegrees) /
+                  Mathf.Max(Time.fixedDeltaTime, 0.001f)
+                : 0f;
+            previousSlipAngleDegrees = VehicleSlipAngleDegrees;
+            slipStateInitialized = true;
             float steeringFade = Mathf.Lerp(
                 1f,
                 highSpeedSteerFactor,
                 Mathf.InverseLerp(steerFadeStartKmh, steerFadeEndKmh, speedKmh));
-            float steering = steerInput * maxSteerAngle * steeringFade;
+            float manualSteerLimit = countersteerEnabled
+                ? Mathf.Min(assistedManualSteerAngle, maxSteerAngle)
+                : maxSteerAngle;
+            float manualSteering = steerInput * manualSteerLimit * steeringFade;
+            float targetCountersteer = countersteerEnabled
+                ? CountersteerAssist.CalculateTargetAngle(
+                    VehicleSlipAngleDegrees,
+                    slipRateDegreesPerSecond,
+                    Vector3.Dot(body.angularVelocity, transform.up) * Mathf.Rad2Deg,
+                    speedKmh,
+                    countersteerMinimumSpeedKmh,
+                    countersteerEngageSlipDegrees,
+                    countersteerFullSlipDegrees,
+                    maxSteerAngle,
+                    countersteerSlipGain,
+                    countersteerSlipRateGain,
+                    countersteerYawDamping)
+                : 0f;
+            CurrentCountersteerAngle = CountersteerAssist.StepTowardTarget(
+                CurrentCountersteerAngle,
+                targetCountersteer,
+                countersteerResponseDegreesPerSecond,
+                Time.fixedDeltaTime);
+            float manualAuthority = countersteerEnabled &&
+                                    Mathf.Abs(VehicleSlipAngleDegrees) > countersteerEngageSlipDegrees
+                ? countersteerManualAuthority
+                : 1f;
+            float steering = Mathf.Clamp(
+                CurrentCountersteerAngle + manualSteering * manualAuthority,
+                -maxSteerAngle,
+                maxSteerAngle);
 
             DriveCommand drive = ComputeDriveCommand(input, signedSpeed, planarSpeedMetersPerSecond, motorSpeedKmh);
             LastDrivenWheelSlip = AverageDrivenWheelSlip();

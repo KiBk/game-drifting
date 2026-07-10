@@ -14,7 +14,7 @@ namespace HeavySuvPrototype
     [RequireComponent(typeof(NetworkManager), typeof(UnityTransport))]
     public sealed class MultiplayerBootstrap : MonoBehaviour
     {
-        public const ushort NetworkProtocolVersion = 7;
+        public const ushort NetworkProtocolVersion = 8;
         public const string PreferredRelayRegion = "europe-north1";
         public const string RelayConnectionType = "wss";
         public const float GameplayReadyTimeoutSeconds = 18f;

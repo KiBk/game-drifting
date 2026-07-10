@@ -19,28 +19,39 @@ namespace HeavySuvPrototype
             default,
             NetworkVariableReadPermission.Everyone,
             NetworkVariableWritePermission.Owner);
+        private readonly NetworkVariable<byte> bodyStyleValue = new NetworkVariable<byte>(
+            (byte)VehicleBodyStyle.RallyHatch,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Owner);
         private HeavySuvVehicleController controller;
+        private VehicleAppearanceController appearance;
 
         public Color32 VehicleColor => UnpackColor(colorRgba.Value);
+        public VehicleBodyStyle BodyStyle => DecodeBodyStyle(bodyStyleValue.Value);
         public bool LocalSimulationEnabled => controller != null && controller.enabled;
         public NetworkVariableWritePermission ColorWritePermission => colorRgba.WritePerm;
+        public NetworkVariableWritePermission BodyStyleWritePermission => bodyStyleValue.WritePerm;
 
         private void Awake()
         {
             controller = GetComponent<HeavySuvVehicleController>();
+            appearance = GetComponent<VehicleAppearanceController>();
             MultiplayerNetworkTuning.Apply(GetComponent<NetworkTransform>());
         }
 
         public override void OnNetworkSpawn()
         {
             colorRgba.OnValueChanged += OnColorChanged;
+            bodyStyleValue.OnValueChanged += OnBodyStyleChanged;
             ApplyColor(UnpackColor(colorRgba.Value));
+            ApplyBodyStyle(DecodeBodyStyle(bodyStyleValue.Value));
             ConfigureAuthority(IsOwner);
         }
 
         public override void OnNetworkDespawn()
         {
             colorRgba.OnValueChanged -= OnColorChanged;
+            bodyStyleValue.OnValueChanged -= OnBodyStyleChanged;
         }
 
         public void SetColor(Color32 color)
@@ -56,10 +67,29 @@ namespace HeavySuvPrototype
             }
         }
 
+        public void SetBodyStyle(VehicleBodyStyle style)
+        {
+            byte encodedStyle = (byte)style;
+            if (IsOwner)
+            {
+                bodyStyleValue.Value = encodedStyle;
+            }
+            else if (IsServer)
+            {
+                SetBodyStyleForOwnerRpc(encodedStyle);
+            }
+        }
+
         [Rpc(SendTo.Owner)]
         private void SetColorForOwnerRpc(uint packedColor)
         {
             colorRgba.Value = packedColor;
+        }
+
+        [Rpc(SendTo.Owner)]
+        private void SetBodyStyleForOwnerRpc(byte encodedStyle)
+        {
+            bodyStyleValue.Value = encodedStyle;
         }
 
         public static uint PackColor(Color32 color)
@@ -74,6 +104,13 @@ namespace HeavySuvPrototype
                 (byte)((rgba >> 8) & 0xff),
                 (byte)((rgba >> 16) & 0xff),
                 (byte)((rgba >> 24) & 0xff));
+        }
+
+        private static VehicleBodyStyle DecodeBodyStyle(byte encodedStyle)
+        {
+            return encodedStyle == (byte)VehicleBodyStyle.KenneySport
+                ? VehicleBodyStyle.KenneySport
+                : VehicleBodyStyle.RallyHatch;
         }
 
         private void ConfigureAuthority(bool isOwner)
@@ -125,6 +162,17 @@ namespace HeavySuvPrototype
         private void OnColorChanged(uint previous, uint current)
         {
             ApplyColor(UnpackColor(current));
+        }
+
+        private void OnBodyStyleChanged(byte previous, byte current)
+        {
+            ApplyBodyStyle(DecodeBodyStyle(current));
+        }
+
+        private void ApplyBodyStyle(VehicleBodyStyle style)
+        {
+            appearance ??= GetComponent<VehicleAppearanceController>();
+            appearance?.SetBodyStyle(style);
         }
 
         private void ApplyColor(Color32 color)

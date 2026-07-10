@@ -8,6 +8,63 @@ namespace HeavySuvPrototype.Tests
     public sealed class HeavySuvVehicleTests
     {
         [Test]
+        public void CountersteerAssistUsesSlipYawAndExpandedSteeringLock()
+        {
+            float rightCountersteer = CountersteerAssist.CalculateTargetAngle(
+                20f,
+                0f,
+                -25f,
+                50f,
+                12f,
+                3.5f,
+                18f,
+                58f,
+                1.55f,
+                0.035f,
+                0.18f);
+            float leftCountersteer = CountersteerAssist.CalculateTargetAngle(
+                -20f,
+                0f,
+                25f,
+                50f,
+                12f,
+                3.5f,
+                18f,
+                58f,
+                1.55f,
+                0.035f,
+                0.18f);
+
+            Assert.Greater(rightCountersteer, 23f);
+            Assert.Less(leftCountersteer, -23f);
+            Assert.AreEqual(-rightCountersteer, leftCountersteer, 0.001f);
+            Assert.AreEqual(
+                0f,
+                CountersteerAssist.CalculateTargetAngle(
+                    20f,
+                    0f,
+                    -25f,
+                    8f,
+                    12f,
+                    3.5f,
+                    18f,
+                    58f,
+                    1.55f,
+                    0.035f,
+                    0.18f),
+                0.001f);
+        }
+
+        [Test]
+        public void CountersteerResponseIsRateLimited()
+        {
+            Assert.AreEqual(
+                4.6667f,
+                CountersteerAssist.StepTowardTarget(0f, 40f, 280f, 1f / 60f),
+                0.001f);
+        }
+
+        [Test]
         public void DifferentialPreservesNominalSplitAtEqualTraction()
         {
             DifferentialTorqueSplit split = RacingDifferential.SplitTorque(
@@ -253,6 +310,36 @@ namespace HeavySuvPrototype.Tests
             {
                 Assert.AreEqual(wheel.isFront ? 0f : expectedRearTorque, wheel.collider.motorTorque, 1f);
             }
+        }
+
+        [UnityTest]
+        public IEnumerator CountersteerCanBeEnabledOrDisabledWithoutChangingInput()
+        {
+            VehicleScenarioRunner assisted = new VehicleScenarioRunner();
+            yield return assisted.Create();
+            assisted.Vehicle.Body.linearVelocity =
+                assisted.Vehicle.transform.forward * 10f + assisted.Vehicle.transform.right * 5f;
+            assisted.Vehicle.Body.angularVelocity = assisted.Vehicle.transform.up * -0.4f;
+            yield return assisted.Run(VehicleScenarioRunner.For(0.12f, VehicleInputState.None));
+
+            Assert.AreEqual(58f, assisted.Vehicle.maxSteerAngle, 0.001f);
+            Assert.IsTrue(assisted.Vehicle.countersteerEnabled);
+            Assert.Greater(assisted.Vehicle.CurrentCountersteerAngle, 1f);
+            Assert.Greater(assisted.Vehicle.wheels[0].collider.steerAngle, 1f);
+            Assert.LessOrEqual(
+                assisted.Vehicle.wheels[0].collider.steerAngle,
+                assisted.Vehicle.maxSteerAngle);
+
+            VehicleScenarioRunner direct = new VehicleScenarioRunner();
+            yield return direct.Create();
+            direct.Vehicle.SetCountersteerEnabled(false);
+            direct.Vehicle.Body.linearVelocity =
+                direct.Vehicle.transform.forward * 10f + direct.Vehicle.transform.right * 5f;
+            direct.Vehicle.Body.angularVelocity = direct.Vehicle.transform.up * -0.4f;
+            yield return direct.Run(VehicleScenarioRunner.For(0.12f, VehicleInputState.None));
+
+            Assert.AreEqual(0f, direct.Vehicle.CurrentCountersteerAngle, 0.001f);
+            Assert.AreEqual(0f, direct.Vehicle.wheels[0].collider.steerAngle, 0.001f);
         }
 
         [UnityTest]
@@ -589,9 +676,26 @@ namespace HeavySuvPrototype.Tests
             VehicleAudio audio = runner.Vehicle.GetComponent<VehicleAudio>();
             Assert.NotNull(audio);
             Assert.IsTrue(audio.UsesExternalClips);
-            Assert.AreEqual(5, runner.Vehicle.GetComponents<AudioSource>().Length);
+            Assert.IsTrue(audio.UsesAsphaltScrub);
+            Assert.AreEqual(6, runner.Vehicle.GetComponents<AudioSource>().Length);
             Assert.NotNull(runner.Vehicle.GetComponent<ConvoyTurboController>());
             Assert.NotNull(runner.Vehicle.transform.Find("Rally Hatch Lower Body"));
+            VehicleAppearanceController appearance = runner.Vehicle.GetComponent<VehicleAppearanceController>();
+            Assert.NotNull(appearance);
+            Assert.IsTrue(appearance.HasAlternateModelAsset);
+            Assert.AreEqual(VehicleBodyStyle.RallyHatch, appearance.BodyStyle);
+            Assert.IsTrue(appearance.SetBodyStyle(VehicleBodyStyle.KenneySport));
+            Assert.IsTrue(appearance.AlternateModelLoaded);
+            Assert.IsFalse(runner.Vehicle.transform.Find("Rally Hatch Lower Body").gameObject.activeSelf);
+            Assert.Greater(
+                runner.Vehicle.transform.Find("Kenney Sport Body").GetComponentsInChildren<Renderer>().Length,
+                0);
+            Assert.IsTrue(appearance.SetBodyStyle(VehicleBodyStyle.RallyHatch));
+            Assert.IsTrue(runner.Vehicle.transform.Find("Rally Hatch Lower Body").gameObject.activeSelf);
+            GameObject ground = GameObject.Find("Flat Ground");
+            Assert.NotNull(ground);
+            Assert.AreEqual("Procedural Asphalt", ground.GetComponent<Renderer>().sharedMaterial.name);
+            Assert.NotNull(ground.GetComponent<Renderer>().sharedMaterial.mainTexture);
             Assert.AreEqual(6800f, runner.Vehicle.motorTorque);
             Assert.AreEqual(1550f, runner.Vehicle.Body.mass);
             Assert.AreEqual(-0.08f, runner.Vehicle.Body.centerOfMass.y, 0.001f);
