@@ -15,9 +15,10 @@ forever.
 Phone browsers use a landscape-only touch layout: steering on the left,
 gas/brake/boost on the right, and a collapsible `CAR` panel for selector,
 AWD/RWD, sound, and respawn controls. The top-right toolbar can independently
-show or hide driving controls and the invite link. Touch `BOOST` also applies
-gas, while keyboard Shift remains boost-only. Touch-capable desktop browsers
-keep the toolbar but start with the driving controls hidden.
+show or hide driving controls, while `LINK` toggles the complete multiplayer
+status and invite window. Touch `BOOST` also applies gas, while keyboard Shift
+remains boost-only. Touch-capable desktop browsers keep the toolbar but start
+with the driving controls hidden.
 
 ## Update the WebGL deployment snapshot
 

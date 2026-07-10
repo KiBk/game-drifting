@@ -206,6 +206,21 @@ namespace HeavySuvPrototype.Tests
         }
 
         [Test]
+        public void LinkToggleControlsEntireGameplayPanel()
+        {
+            GameObject hudObject = new GameObject("Multiplayer HUD Toggle Test");
+            MultiplayerHud hud = hudObject.AddComponent<MultiplayerHud>();
+
+            Assert.IsTrue(hud.GameplayPanelVisible);
+            hud.ToggleGameplayPanel();
+            Assert.IsFalse(hud.GameplayPanelVisible);
+            hud.ToggleGameplayPanel();
+            Assert.IsTrue(hud.GameplayPanelVisible);
+
+            Object.DestroyImmediate(hudObject);
+        }
+
+        [Test]
         public void TouchInputMergesWithKeyboardInput()
         {
             VehicleInputState keyboard = new VehicleInputState { steerRight = true };

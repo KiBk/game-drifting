@@ -14,12 +14,11 @@ namespace HeavySuvPrototype
         private int watchedCarIndex = -1;
         private float smoothedFrameTime = 1f / 60f;
 
-        public bool InviteDetailsVisible { get; private set; } = true;
-        public bool HasShareableInvite => HasHostInvite();
+        public bool GameplayPanelVisible { get; private set; } = true;
 
-        public void ToggleInviteDetails()
+        public void ToggleGameplayPanel()
         {
-            InviteDetailsVisible = !InviteDetailsVisible;
+            GameplayPanelVisible = !GameplayPanelVisible;
         }
 
         private void Start()
@@ -68,14 +67,17 @@ namespace HeavySuvPrototype
                 return;
             }
 
-            DrawGameplayPanel(status, connected);
+            if (GameplayPanelVisible)
+            {
+                DrawGameplayPanel(status, connected);
+            }
         }
 
         private void DrawConnectionPanel(string status, int connected)
         {
             bool mobile = IsMobileLayoutEnabled();
             float panelWidth = mobile ? Mathf.Min(560f, Screen.width - 24f) : 560f;
-            bool showInvite = HasHostInvite() && InviteDetailsVisible;
+            bool showInvite = HasHostInvite();
             float panelHeight = showInvite ? 282f : 222f;
             Rect panel = new Rect(
                 Screen.width * 0.5f - panelWidth * 0.5f,
@@ -125,13 +127,13 @@ namespace HeavySuvPrototype
                 ? MobileControlLayout.GetToolbarReservedWidth(
                     Screen.height,
                     scale,
-                    hasInvite ? 3 : 2)
+                    3)
                 : 0f;
             float mobileMargin = Mathf.Clamp(Screen.height * 0.025f, 8f, 18f);
             float panelWidth = mobile
                 ? Mathf.Min(620f, Mathf.Max(240f, Screen.width - toolbarWidth - mobileMargin - 8f))
                 : 560f;
-            bool showInvite = hasInvite && InviteDetailsVisible;
+            bool showInvite = hasInvite;
             float panelHeight = showInvite ? 158f : 108f;
             Rect panel = mobile
                 ? new Rect(mobileMargin, 12f, panelWidth, panelHeight)

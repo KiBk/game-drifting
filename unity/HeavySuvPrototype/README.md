@@ -58,7 +58,8 @@ Unity Cloud linking instructions are in `UGS_SETUP.md`.
 - When the host leaves, its Relay code expires and invited players can create a fresh room.
 - Web builds use Relay client-host networking over secure WebSockets.
 - Phone WebGL builds block portrait driving and expose separate toolbar toggles
-  for touch driving controls, the `CAR` panel, and the host invite link.
+  for touch driving controls, the `CAR` panel, and the complete multiplayer
+  status/invite window under `LINK`.
 - Touch-capable desktop browsers start with touch driving controls hidden.
 - Without a linked Unity Cloud project the build runs a local one-player fallback.
 

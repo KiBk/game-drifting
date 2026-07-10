@@ -214,7 +214,7 @@ namespace HeavySuvPrototype
             }
 
             multiplayerHud ??= FindAnyObjectByType<MultiplayerHud>();
-            if (multiplayerHud == null || !multiplayerHud.HasShareableInvite)
+            if (multiplayerHud == null)
             {
                 return;
             }
@@ -226,10 +226,10 @@ namespace HeavySuvPrototype
                 2);
             if (GUI.Button(
                     linkButton,
-                    multiplayerHud.InviteDetailsVisible ? "HIDE LINK" : "LINK",
+                    "LINK",
                     buttonStyle))
             {
-                multiplayerHud.ToggleInviteDetails();
+                multiplayerHud.ToggleGameplayPanel();
             }
         }
 
