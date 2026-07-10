@@ -130,6 +130,57 @@ namespace HeavySuvPrototype.Tests
         }
 
         [Test]
+        public void MobileControlsSupportSteeringThrottleAndBoostTogether()
+        {
+            MobileControlRects controls = MobileControlLayout.Calculate(844f, 390f);
+            VehicleInputState input = VehicleInputState.None;
+
+            MobileControlLayout.ApplyPointer(ref input, controls, controls.SteerLeft.center);
+            MobileControlLayout.ApplyPointer(ref input, controls, controls.Throttle.center);
+            MobileControlLayout.ApplyPointer(ref input, controls, controls.Boost.center);
+
+            Assert.IsTrue(input.steerLeft);
+            Assert.IsTrue(input.throttle);
+            Assert.IsTrue(input.turbo);
+            Assert.IsFalse(input.steerRight);
+            Assert.IsFalse(input.brake);
+            Assert.IsFalse(controls.SteerRight.Overlaps(controls.Brake));
+            Assert.IsFalse(controls.Brake.Overlaps(controls.Throttle));
+            Assert.IsFalse(controls.Boost.Overlaps(controls.Throttle));
+        }
+
+        [Test]
+        public void MobileLayoutRequiresLandscapeAndDetectsPhoneOrPreviewMode()
+        {
+            Assert.IsTrue(MobileControlLayout.IsLandscape(844, 390));
+            Assert.IsFalse(MobileControlLayout.IsLandscape(390, 844));
+            Assert.IsTrue(MobileControlLayout.ShouldEnable(true, false, string.Empty));
+            Assert.IsTrue(MobileControlLayout.ShouldEnable(false, true, string.Empty));
+            Assert.IsTrue(MobileControlLayout.ShouldEnable(
+                false,
+                false,
+                "https://drifting.chronos.kibk.net/?touchControls=1"));
+            Assert.IsFalse(MobileControlLayout.ShouldEnable(
+                false,
+                false,
+                "https://drifting.chronos.kibk.net/"));
+        }
+
+        [Test]
+        public void TouchInputMergesWithKeyboardInput()
+        {
+            VehicleInputState keyboard = new VehicleInputState { steerRight = true };
+            VehicleInputState touch = new VehicleInputState { throttle = true, turbo = true };
+
+            VehicleInputState merged = VehicleInputState.Merge(keyboard, touch);
+
+            Assert.IsTrue(merged.steerRight);
+            Assert.IsTrue(merged.throttle);
+            Assert.IsTrue(merged.turbo);
+            Assert.IsFalse(merged.brake);
+        }
+
+        [Test]
         public void NetworkCarPrefabUsesOwnerAuthorityAndGhostLayer()
         {
             GameObject prefab = Resources.Load<GameObject>("Network/NetworkRallyCar");

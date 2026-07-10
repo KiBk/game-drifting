@@ -15,6 +15,7 @@ asset churn while the gameplay-facing prototype moves to the rally format.
 - Standard WheelCollider spring/friction behavior with compliant suspension,
   progressive grip loss, and traction-aware torque delivery.
 - Arrow-key throttle, brake/reverse, and steering.
+- Landscape phone controls with left-side steering and right-side gas, brake, and boost.
 - Space handbrake.
 - `R`, `N`, `D`, and `A` remain as direction/drive selectors; there are no gears.
 - Shift directly activates a fixed full-power 1.65x boost while held.
@@ -51,6 +52,7 @@ Unity Cloud linking instructions are in `UGS_SETUP.md`.
 - Netcode's protocol version rejects incompatible cached builds.
 - When the host leaves, its Relay code expires and invited players can create a fresh room.
 - Web builds use Relay client-host networking over secure WebSockets.
+- Phone WebGL builds block portrait driving and collapse selector, AWD/RWD, sound, and respawn controls behind a `CAR` button.
 - Without a linked Unity Cloud project the build runs a local one-player fallback.
 
 ## Batch Commands

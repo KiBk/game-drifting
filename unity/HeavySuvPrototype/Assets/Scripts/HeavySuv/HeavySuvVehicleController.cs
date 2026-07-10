@@ -72,6 +72,7 @@ namespace HeavySuvPrototype
         private VehicleInputState lastInput;
         private bool previousDriveToggle;
         private ConvoyTurboController convoyTurbo;
+        private VehicleHud vehicleHud;
         private Vector3 respawnPosition;
         private Quaternion respawnRotation;
         private bool respawnPoseSet;
@@ -263,7 +264,7 @@ namespace HeavySuvPrototype
                 return scriptedInput;
             }
 
-            return new VehicleInputState
+            VehicleInputState keyboardInput = new VehicleInputState
             {
                 throttle = Input.GetKey(KeyCode.UpArrow),
                 brake = Input.GetKey(KeyCode.DownArrow),
@@ -273,6 +274,11 @@ namespace HeavySuvPrototype
                 turbo = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift),
                 toggleDriveMode = Input.GetKey(KeyCode.D)
             };
+
+            vehicleHud ??= GetComponent<VehicleHud>();
+            return vehicleHud == null
+                ? keyboardInput
+                : VehicleInputState.Merge(keyboardInput, vehicleHud.MobileInput);
         }
 
         private void ApplyInput(VehicleInputState input)

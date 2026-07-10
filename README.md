@@ -12,6 +12,10 @@ other drivers. Invite links use the Relay code as `?join=<relay-code>`; an
 expired invite stops with an option to create a new room instead of reconnecting
 forever.
 
+Phone browsers use a landscape-only touch layout: steering on the left,
+gas/brake/boost on the right, and a collapsible `CAR` panel for selector,
+AWD/RWD, sound, and respawn controls.
+
 ## Update the WebGL deployment snapshot
 
 Build the Unity project as documented in
