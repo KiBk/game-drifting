@@ -80,7 +80,7 @@ namespace HeavySuvPrototype.Tests
         }
 
         [Test]
-        public void EightDriverStartsAreDistinctAndProtocolUsesFreshRoom()
+        public void EightDriverStartsAreDistinctAndProtocolUsesInviteRooms()
         {
             HashSet<Vector3> positions = new HashSet<Vector3>();
             for (int slot = 0; slot < MultiplayerCoordinator.DriverSlots; slot += 1)
@@ -90,9 +90,41 @@ namespace HeavySuvPrototype.Tests
 
             Assert.AreEqual(8, positions.Count);
             Assert.AreEqual(7, MultiplayerBootstrap.NetworkProtocolVersion);
-            StringAssert.EndsWith("-v7", MultiplayerBootstrap.PublicSessionId);
+            Assert.AreEqual("join", MultiplayerInvite.QueryParameter);
             Assert.AreEqual("europe-north1", MultiplayerBootstrap.PreferredRelayRegion);
             Assert.AreEqual(50u, MultiplayerNetworkTuning.TickRate);
+        }
+
+        [Test]
+        public void InviteUrlRoundTripsAndReplacesExpiredCode()
+        {
+            const string sourceUrl = "https://drifting.chronos.kibk.net/?quality=high&join=OLD123#ignored";
+
+            string inviteUrl = MultiplayerInvite.BuildInviteUrl(sourceUrl, " new789 ");
+
+            Assert.AreEqual(
+                "https://drifting.chronos.kibk.net/?quality=high&join=NEW789",
+                inviteUrl);
+            Assert.AreEqual("NEW789", MultiplayerInvite.ReadJoinCode(inviteUrl));
+        }
+
+        [Test]
+        public void MissingOrEmptyInviteDoesNotJoinOldRoom()
+        {
+            Assert.IsNull(MultiplayerInvite.ReadJoinCode("https://drifting.chronos.kibk.net/"));
+            Assert.IsNull(MultiplayerInvite.ReadJoinCode("https://drifting.chronos.kibk.net/?join="));
+            Assert.AreEqual("?join=ABC789", MultiplayerInvite.BuildInviteUrl(string.Empty, "abc789"));
+        }
+
+        [Test]
+        public void ExpiredRelayJoinCodeIsDetectedThroughWrappedException()
+        {
+            System.Exception wrapped = new System.InvalidOperationException(
+                "Session setup failed",
+                new System.Exception("Relay 15009: join code not found"));
+
+            Assert.IsTrue(MultiplayerInvite.IsExpiredJoinCode(wrapped));
+            Assert.IsFalse(MultiplayerInvite.IsExpiredJoinCode(new System.Exception("Network timeout")));
         }
 
         [Test]

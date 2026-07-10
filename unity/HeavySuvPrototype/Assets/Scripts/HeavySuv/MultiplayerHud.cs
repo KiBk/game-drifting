@@ -62,22 +62,20 @@ namespace HeavySuvPrototype
                 return;
             }
 
-            GUI.Box(
-                new Rect(Screen.width * 0.5f - 210f, Screen.height - 144f, 420f, 94f),
-                $"{status}\nDrivers online: {connected}/{MultiplayerCoordinator.MaximumParticipants}\n{GetNetworkQualitySummary()}",
-                panelStyle);
+            DrawGameplayPanel(status, connected);
         }
 
         private void DrawConnectionPanel(string status, int connected)
         {
-            const float panelWidth = 420f;
-            const float panelHeight = 198f;
+            const float panelWidth = 560f;
+            bool showInvite = HasHostInvite();
+            float panelHeight = showInvite ? 282f : 222f;
             Rect panel = new Rect(Screen.width * 0.5f - panelWidth * 0.5f, 24f, panelWidth, panelHeight);
             GUI.Box(panel, string.Empty, panelStyle);
             GUILayout.BeginArea(new Rect(panel.x + 16f, panel.y + 12f, panel.width - 32f, panel.height - 24f));
             GUILayout.Label("Convoy Rally Online", titleStyle);
             GUILayout.Label(status, labelStyle);
-            GUILayout.Label($"Room: {connected}/{MultiplayerCoordinator.MaximumParticipants} — every slot gets a car", labelStyle);
+            GUILayout.Label($"Room: {connected}/{MultiplayerCoordinator.MaximumParticipants} — share an invite link to add drivers", labelStyle);
             GUILayout.Label(GetNetworkQualitySummary(), labelStyle);
             if (GetCars().Count > 0)
             {
@@ -88,12 +86,63 @@ namespace HeavySuvPrototype
                 GUILayout.Label("Waiting for the first active car…", labelStyle);
             }
 
-            if (bootstrap != null && bootstrap.CanRetry && GUILayout.Button("Reconnect now"))
+            if (showInvite)
+            {
+                DrawInviteControls();
+            }
+
+            if (bootstrap != null && bootstrap.CanCreateFreshRoom && GUILayout.Button("Create a fresh room"))
+            {
+                bootstrap.CreateFreshRoom();
+            }
+            else if (bootstrap != null && bootstrap.CanRetry && GUILayout.Button("Reconnect now"))
             {
                 bootstrap.RetryNow();
             }
 
             GUILayout.EndArea();
+        }
+
+        private void DrawGameplayPanel(string status, int connected)
+        {
+            const float panelWidth = 560f;
+            bool showInvite = HasHostInvite();
+            float panelHeight = showInvite ? 158f : 108f;
+            Rect panel = new Rect(
+                Screen.width * 0.5f - panelWidth * 0.5f,
+                Screen.height - panelHeight - 36f,
+                panelWidth,
+                panelHeight);
+            GUI.Box(panel, string.Empty, panelStyle);
+            GUILayout.BeginArea(new Rect(panel.x + 16f, panel.y + 10f, panel.width - 32f, panel.height - 20f));
+            GUILayout.Label(status, labelStyle);
+            GUILayout.Label(
+                $"Drivers online: {connected}/{MultiplayerCoordinator.MaximumParticipants} | {GetNetworkQualitySummary()}",
+                labelStyle);
+            if (showInvite)
+            {
+                DrawInviteControls();
+            }
+            GUILayout.EndArea();
+        }
+
+        private bool HasHostInvite()
+        {
+            return bootstrap != null &&
+                   bootstrap.IsSessionHost &&
+                   !string.IsNullOrWhiteSpace(bootstrap.InviteUrl);
+        }
+
+        private void DrawInviteControls()
+        {
+            GUILayout.Label($"Invite code: {bootstrap.InviteCode}", labelStyle);
+            GUILayout.BeginHorizontal();
+            GUILayout.TextField(bootstrap.InviteUrl);
+            if (GUILayout.Button("Copy link", GUILayout.Width(100f)))
+            {
+                GUIUtility.systemCopyBuffer = bootstrap.InviteUrl;
+            }
+            GUILayout.EndHorizontal();
         }
 
         private string GetNetworkQualitySummary()

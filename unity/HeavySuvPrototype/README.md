@@ -25,7 +25,7 @@ asset churn while the gameplay-facing prototype moves to the rally format.
 - Layered open-source electric-motor, tire-rolling, wheelspin, and locked-tire audio.
 - HUD sound-effects volume control, manual respawn, and automatic respawn after falling from the platform.
 - Lower rally-car body and center of mass for sustained-corner rollover resistance.
-- Automatic Unity Sessions/Relay connection with up to eight owner-driven network cars.
+- Fresh private Unity Sessions/Relay rooms with shareable invite links and up to eight owner-driven network cars.
 - Random active-car preview camera while a browser finishes joining the realtime network.
 - A 50 Hz low-latency vehicle profile with unreliable compressed transform deltas and modern interpolation.
 - Multiplayer RTT, network tick rate, and browser frame-rate telemetry in the connection HUD.
@@ -43,7 +43,9 @@ Unity Cloud linking instructions are in `UGS_SETUP.md`.
 ## Multiplayer
 
 - Packages: Netcode for GameObjects `2.13.0` and Multiplayer Services `2.2.4`.
-- Session: `convoy-rally-public-v7`, eight participants, and eight active drivers.
+- Opening the game without an invite creates a fresh private room with eight participant slots.
+- The host copies the displayed `?join=<session-code>` link for other drivers.
+- Opening an invite link joins that room; expired Relay join codes stop with an option to create a fresh room instead of retrying forever.
 - Relay allocations currently target `europe-north1` and preserve that region across host migration.
 - Spawning waits for both the session response and Netcode's local-client-ready callback.
 - The protocol room is versioned so incompatible cached builds cannot share a session.

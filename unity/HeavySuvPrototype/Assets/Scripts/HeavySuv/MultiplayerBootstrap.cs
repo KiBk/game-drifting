@@ -15,7 +15,6 @@ namespace HeavySuvPrototype
     public sealed class MultiplayerBootstrap : MonoBehaviour
     {
         public const ushort NetworkProtocolVersion = 7;
-        public const string PublicSessionId = "convoy-rally-public-v7";
         public const string PreferredRelayRegion = "europe-north1";
         public const float GameplayReadyTimeoutSeconds = 18f;
         public const float HostMigrationTimeoutSeconds = 55f;
@@ -25,7 +24,14 @@ namespace HeavySuvPrototype
         public bool IsOnlineSession { get; private set; }
         public bool IsReconnecting { get; private set; }
         public bool IsGameplayReady { get; private set; }
-        public bool CanRetry => !connecting && !IsGameplayReady && retryRoutine == null;
+        public bool CanRetry => !InviteExpired && !connecting && !IsGameplayReady && retryRoutine == null;
+        public bool CanCreateFreshRoom => InviteExpired && !connecting && !IsGameplayReady && retryRoutine == null;
+        public bool InviteExpired { get; private set; }
+        public bool IsSessionHost => session != null && session.IsHost;
+        public string InviteCode => session == null ? string.Empty : session.Code;
+        public string InviteUrl => session == null
+            ? string.Empty
+            : MultiplayerInvite.BuildInviteUrl(Application.absoluteURL, session.Code);
         public int ConnectedCount => session == null ? OfflineConnectedCount : session.Players.Count;
         public ulong CurrentRttMilliseconds => GetCurrentRttMilliseconds();
         public int OfflineConnectedCount { get; private set; }
@@ -40,6 +46,7 @@ namespace HeavySuvPrototype
         private bool shuttingDown;
         private bool connecting;
         private bool localCarReady;
+        private string requestedJoinCode;
 
         private void Awake()
         {
@@ -61,6 +68,7 @@ namespace HeavySuvPrototype
                 return;
             }
 
+            requestedJoinCode = MultiplayerInvite.ReadJoinCode(Application.absoluteURL);
             await ConnectOnlineAsync();
         }
 
@@ -73,7 +81,21 @@ namespace HeavySuvPrototype
 
             StopRetryRoutine();
             IsReconnecting = true;
-            Status = "Reconnecting…";
+            Status = requestedJoinCode == null ? "Creating a fresh room…" : "Reconnecting to invite…";
+            retryRoutine = StartCoroutine(ReconnectAfterDelay(0f, 0f));
+        }
+
+        public void CreateFreshRoom()
+        {
+            if (shuttingDown || connecting || IsGameplayReady || retryRoutine != null)
+            {
+                return;
+            }
+
+            requestedJoinCode = null;
+            InviteExpired = false;
+            IsReconnecting = true;
+            Status = "Creating a fresh room…";
             retryRoutine = StartCoroutine(ReconnectAfterDelay(0f, 0f));
         }
 
@@ -93,7 +115,9 @@ namespace HeavySuvPrototype
 
             connecting = true;
             IsGameplayReady = false;
-            Status = IsReconnecting ? "Reconnecting to public room…" : "Connecting to public room…";
+            Status = requestedJoinCode == null
+                ? IsReconnecting ? "Creating a fresh room…" : "Creating a room…"
+                : IsReconnecting ? "Reconnecting to invite…" : "Joining invite room…";
             try
             {
                 if (UnityServices.State == ServicesInitializationState.Uninitialized)
@@ -108,17 +132,16 @@ namespace HeavySuvPrototype
                     await AuthenticationService.Instance.SignInAnonymouslyAsync();
                 }
 
-                SessionOptions options = new SessionOptions
+                if (requestedJoinCode == null)
                 {
-                    Name = "Convoy Rally Public Prototype",
-                    MaxPlayers = MultiplayerCoordinator.MaximumParticipants,
-                    IsPrivate = false
+                    session = await MultiplayerService.Instance.CreateSessionAsync(CreateHostSessionOptions());
                 }
-                .WithRelayNetwork(new RelayNetworkOptions(PreferredRelayRegion, true))
-                .WithHostMigration(new ResetOnlyMigrationDataHandler())
-                .WithNetworkOptions(new NetworkOptions { RelayProtocol = RelayProtocol.WSS });
-
-                session = await MultiplayerService.Instance.CreateOrJoinSessionAsync(PublicSessionId, options);
+                else
+                {
+                    session = await MultiplayerService.Instance.JoinSessionByCodeAsync(
+                        requestedJoinCode,
+                        CreateJoinSessionOptions());
+                }
                 if (shuttingDown)
                 {
                     await session.LeaveAsync();
@@ -129,6 +152,7 @@ namespace HeavySuvPrototype
                 session.Deleted += OnSessionLost;
                 session.RemovedFromSession += OnSessionLost;
                 session.SessionMigrated += OnSessionMigrated;
+                InviteExpired = false;
                 IsOnlineSession = true;
                 readiness.MarkSessionReady();
                 if (networkManager.IsConnectedClient)
@@ -142,6 +166,15 @@ namespace HeavySuvPrototype
             catch (Exception exception)
             {
                 IsOnlineSession = false;
+                if (requestedJoinCode != null && MultiplayerInvite.IsExpiredJoinCode(exception))
+                {
+                    InviteExpired = true;
+                    IsReconnecting = false;
+                    Status = "Invite expired — create a fresh room";
+                    Debug.LogWarning($"Multiplayer invite expired: {exception}");
+                    return;
+                }
+
                 bool full = exception.Message.IndexOf("full", StringComparison.OrdinalIgnoreCase) >= 0;
                 string status = full ? "Room full — retrying" : "Connection failed — retrying";
                 Debug.LogWarning($"Multiplayer connection failed: {exception}");
@@ -151,6 +184,26 @@ namespace HeavySuvPrototype
             {
                 connecting = false;
             }
+        }
+
+        private static SessionOptions CreateHostSessionOptions()
+        {
+            return new SessionOptions
+                {
+                    Name = "Convoy Rally",
+                    MaxPlayers = MultiplayerCoordinator.MaximumParticipants,
+                    IsPrivate = true
+                }
+                .WithRelayNetwork(new RelayNetworkOptions(PreferredRelayRegion, true))
+                .WithHostMigration(new ResetOnlyMigrationDataHandler())
+                .WithNetworkOptions(new NetworkOptions { RelayProtocol = RelayProtocol.WSS });
+        }
+
+        private static JoinSessionOptions CreateJoinSessionOptions()
+        {
+            return new JoinSessionOptions()
+                .WithHostMigration(new ResetOnlyMigrationDataHandler())
+                .WithNetworkOptions(new NetworkOptions { RelayProtocol = RelayProtocol.WSS });
         }
 
         private void StartLocalFallback()
