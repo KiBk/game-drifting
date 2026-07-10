@@ -26,19 +26,13 @@ namespace HeavySuvPrototype
         public static void CreateEnvironment()
         {
             Physics.gravity = new Vector3(0f, -9.81f, 0f);
-            Material groundMaterial = new Material(Shader.Find("Standard"))
-            {
-                color = new Color(0.32f, 0.42f, 0.39f)
-            };
+            Material groundMaterial = PrototypeMaterialFactory.CreateLit(new Color(0.32f, 0.42f, 0.39f));
             GameObject ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
             ground.name = "Flat Ground";
             ground.transform.localScale = new Vector3(18f, 1f, 18f);
             ground.GetComponent<Renderer>().sharedMaterial = groundMaterial;
 
-            Material lineMaterial = new Material(Shader.Find("Standard"))
-            {
-                color = new Color(0.54f, 0.62f, 0.58f)
-            };
+            Material lineMaterial = PrototypeMaterialFactory.CreateLit(new Color(0.54f, 0.62f, 0.58f));
 
             for (int i = -18; i <= 18; i += 1)
             {
@@ -283,9 +277,7 @@ namespace HeavySuvPrototype
 
         private static Material CreateMaterial(Color color)
         {
-            Material material = new Material(Shader.Find("Standard"));
-            material.color = color;
-            return material;
+            return PrototypeMaterialFactory.CreateLit(color);
         }
 
         private static void RemoveCollider(GameObject gameObject)

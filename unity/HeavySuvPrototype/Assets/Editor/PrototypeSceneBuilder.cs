@@ -157,11 +157,11 @@ namespace HeavySuvPrototype.Editor
             Material material = AssetDatabase.LoadAssetAtPath<Material>(path);
             if (material == null)
             {
-                material = new Material(Shader.Find("Standard"));
+                material = PrototypeMaterialFactory.CreateLit(color);
                 AssetDatabase.CreateAsset(material, path);
             }
 
-            material.color = color;
+            PrototypeMaterialFactory.ConfigureLit(material, color);
             EditorUtility.SetDirty(material);
             return material;
         }

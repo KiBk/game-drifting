@@ -22,6 +22,7 @@ namespace HeavySuvPrototype
             bool active = controller != null && controller.BrakeLightsActive;
             propertyBlock ??= new MaterialPropertyBlock();
             propertyBlock.SetColor("_Color", active ? brakeOnColor : brakeOffColor);
+            propertyBlock.SetColor("_BaseColor", active ? brakeOnColor : brakeOffColor);
             propertyBlock.SetColor("_EmissionColor", active ? brakeOnColor * 2.4f : Color.black);
 
             foreach (Renderer brakeRenderer in brakeRenderers)

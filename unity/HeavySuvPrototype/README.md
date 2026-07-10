@@ -9,6 +9,7 @@ asset churn while the gameplay-facing prototype moves to the rally format.
 ## Scope
 
 - Flat plane with grid markings.
+- Universal Render Pipeline 17.5 with WebGL-compatible quality assets.
 - Procedural low, wide rally hatch with four visible wheels.
 - 1,550 kg Rigidbody chassis plus four WheelColliders.
 - Single-speed electric drive with rear-biased AWD and an RWD development toggle.
@@ -43,7 +44,8 @@ Unity Cloud linking instructions are in `UGS_SETUP.md`.
 
 ## Multiplayer
 
-- Packages: Netcode for GameObjects `2.13.0` and Multiplayer Services `2.2.4`.
+- Packages: Universal Render Pipeline `17.5.0`, Netcode for GameObjects `2.13.0`,
+  and Multiplayer Services `2.2.4`.
 - Opening the game without an invite creates a fresh Relay allocation with eight participant slots.
 - The host copies the displayed `?join=<relay-code>` link for other drivers.
 - Opening an invite link joins that room; expired Relay join codes stop with an option to create a fresh room instead of retrying forever.

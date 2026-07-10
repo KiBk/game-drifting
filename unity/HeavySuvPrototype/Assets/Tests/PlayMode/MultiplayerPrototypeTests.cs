@@ -3,6 +3,7 @@ using NUnit.Framework;
 using Unity.Netcode;
 using Unity.Netcode.Components;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace HeavySuvPrototype.Tests
 {
@@ -216,6 +217,40 @@ namespace HeavySuvPrototype.Tests
                 MultiplayerCoordinator.NetworkVehicleLayer));
 
             Object.DestroyImmediate(coordinatorObject);
+        }
+
+        [Test]
+        public void ProjectAndGeneratedMaterialsUseUrp()
+        {
+            Assert.NotNull(GraphicsSettings.currentRenderPipeline);
+            Assert.AreEqual(
+                "UniversalRenderPipelineAsset",
+                GraphicsSettings.currentRenderPipeline.GetType().Name);
+
+            HeavySuvVehicleController vehicle = HeavySuvPrototypeFactory.CreateVehicle(Vector3.zero);
+            try
+            {
+                foreach (Renderer renderer in vehicle.GetComponentsInChildren<Renderer>(true))
+                {
+                    foreach (Material material in renderer.sharedMaterials)
+                    {
+                        Assert.NotNull(material);
+                        Assert.NotNull(material.shader);
+                        StringAssert.StartsWith("Universal Render Pipeline/", material.shader.name);
+                    }
+                }
+
+                foreach (TrailRenderer trail in vehicle.GetComponentsInChildren<TrailRenderer>(true))
+                {
+                    Assert.NotNull(trail.sharedMaterial);
+                    Assert.AreEqual(PrototypeMaterialFactory.LitShaderName, trail.sharedMaterial.shader.name);
+                    Assert.AreEqual((int)RenderQueue.Transparent, trail.sharedMaterial.renderQueue);
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(vehicle.gameObject);
+            }
         }
 
         private static DriverQueue CreateFourParticipantQueueWithTwoDrivers()

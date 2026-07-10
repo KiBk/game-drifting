@@ -146,17 +146,8 @@ namespace HeavySuvPrototype
 
         private static Material CreateMarkMaterial()
         {
-            Shader shader = Shader.Find("Sprites/Default");
-            if (shader == null)
-            {
-                shader = Shader.Find("Standard");
-            }
-
-            Material material = new Material(shader)
-            {
-                color = new Color(0.02f, 0.018f, 0.014f, 0.72f)
-            };
-            return material;
+            return PrototypeMaterialFactory.CreateTransparentLit(
+                new Color(0.02f, 0.018f, 0.014f, 0.72f));
         }
     }
 }
