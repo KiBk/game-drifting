@@ -30,6 +30,9 @@ namespace HeavySuvPrototype
         public float brakeTorque = 3000f;
         public float handbrakeTorque = 5600f;
         public float idleWheelDamping = 0.42f;
+        public float releasedThrottleWheelDamping = 18f;
+        public float wheelSpinDampingStartMetersPerSecond = 0.8f;
+        public float wheelSpinDampingEndMetersPerSecond = 8f;
         public float reverseStartSpeed = 0.18f;
         public float motorConstantTorqueEndKmh = 72f;
         public float motorMaximumSpeedKmh = 180f;
@@ -57,6 +60,9 @@ namespace HeavySuvPrototype
         public float steerFadeStartKmh = 8f;
         public float steerFadeEndKmh = 72f;
         public float highSpeedSteerFactor = 0.22f;
+
+        [Header("Respawn")]
+        public float automaticRespawnDropMeters = 8f;
 
         [Header("Wheels")]
         public Wheel[] wheels = new Wheel[4];
@@ -120,14 +126,6 @@ namespace HeavySuvPrototype
             body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             body.linearDamping = 0.025f;
             body.angularDamping = 0.28f;
-
-            foreach (Wheel wheel in wheels)
-            {
-                if (wheel?.collider != null)
-                {
-                    wheel.collider.wheelDampingRate = idleWheelDamping;
-                }
-            }
         }
 
         private void Update()
@@ -146,6 +144,13 @@ namespace HeavySuvPrototype
             EnsureInitialized();
             if (body == null)
             {
+                return;
+            }
+
+            if (ShouldAutomaticallyRespawn())
+            {
+                RespawnAtStart();
+                SyncWheelVisuals();
                 return;
             }
 
@@ -195,6 +200,12 @@ namespace HeavySuvPrototype
             scriptedInput = VehicleInputState.None;
             lastInput = VehicleInputState.None;
             AbsActive = false;
+            BrakeLightsActive = false;
+            ReverseDriveActive = false;
+            HandbrakeActive = false;
+            LastDrivenWheelSlip = 0f;
+            TractionDelivery = 1f;
+            VehicleSlipAngleDegrees = 0f;
             foreach (Wheel wheel in wheels)
             {
                 if (wheel?.collider == null)
@@ -205,6 +216,7 @@ namespace HeavySuvPrototype
                 wheel.collider.motorTorque = 0f;
                 wheel.collider.brakeTorque = 0f;
                 wheel.collider.steerAngle = 0f;
+                wheel.collider.wheelDampingRate = releasedThrottleWheelDamping;
             }
 
             body.WakeUp();
@@ -267,7 +279,9 @@ namespace HeavySuvPrototype
         {
             lastInput = input;
             float signedSpeed = Vector3.Dot(transform.forward, body.linearVelocity);
-            float speedKmh = Mathf.Abs(signedSpeed) * 3.6f;
+            float planarSpeedMetersPerSecond = Vector3.ProjectOnPlane(body.linearVelocity, transform.up).magnitude;
+            float speedKmh = planarSpeedMetersPerSecond * 3.6f;
+            float motorSpeedKmh = Mathf.Max(speedKmh, AverageDrivenWheelSurfaceSpeedKmh());
             float steerInput = (input.steerRight ? 1f : 0f) - (input.steerLeft ? 1f : 0f);
             VehicleSlipAngleDegrees = ComputeSignedSlipAngleDegrees();
             float steeringFade = Mathf.Lerp(
@@ -276,13 +290,13 @@ namespace HeavySuvPrototype
                 Mathf.InverseLerp(steerFadeStartKmh, steerFadeEndKmh, speedKmh));
             float steering = steerInput * maxSteerAngle * steeringFade;
 
-            DriveCommand drive = ComputeDriveCommand(input, signedSpeed, speedKmh);
+            DriveCommand drive = ComputeDriveCommand(input, signedSpeed, planarSpeedMetersPerSecond, motorSpeedKmh);
             LastDrivenWheelSlip = AverageDrivenWheelSlip();
             TractionDelivery = ComputeTractionDelivery(LastDrivenWheelSlip);
             UpdateRearGrip(input.throttle, input.handbrake, LastDrivenWheelSlip);
             if (convoyTurbo != null)
             {
-                convoyTurbo.Step(Time.fixedDeltaTime, input.turbo, LastDrivenWheelSlip);
+                convoyTurbo.Step(Time.fixedDeltaTime, input.turbo);
             }
 
             float turboMultiplier = convoyTurbo == null ? 1f : convoyTurbo.TorqueMultiplier;
@@ -301,6 +315,10 @@ namespace HeavySuvPrototype
                 }
 
                 wheel.collider.steerAngle = wheel.isFront ? steering : 0f;
+                wheel.collider.wheelDampingRate = ComputeWheelDamping(
+                    wheel,
+                    input.throttle,
+                    drive.serviceBraking || input.handbrake);
                 float wheelGearingScale = GetWheelGearingScale(wheel);
                 wheel.collider.motorTorque =
                     IsDriven(wheel) && !(input.handbrake && !wheel.isFront)
@@ -325,7 +343,11 @@ namespace HeavySuvPrototype
             return Vector3.SignedAngle(transform.forward, planarVelocity.normalized, transform.up);
         }
 
-        private DriveCommand ComputeDriveCommand(VehicleInputState input, float signedSpeed, float speedKmh)
+        private DriveCommand ComputeDriveCommand(
+            VehicleInputState input,
+            float signedSpeed,
+            float planarSpeedMetersPerSecond,
+            float motorSpeedKmh)
         {
             DriveCommand command = new DriveCommand
             {
@@ -337,7 +359,9 @@ namespace HeavySuvPrototype
                 case DriveSelectorMode.Reverse:
                     command.serviceBraking = input.brake;
                     command.reverseDriving = input.throttle;
-                    command.motorTorque = input.throttle ? -ComputeElectricMotorTorque(speedKmh, reverseMotorTorque) : 0f;
+                    command.motorTorque = input.throttle
+                        ? -ComputeElectricMotorTorque(motorSpeedKmh, reverseMotorTorque)
+                        : 0f;
                     command.activeSelectorLabel = "R";
                     return command;
 
@@ -348,22 +372,26 @@ namespace HeavySuvPrototype
 
                 case DriveSelectorMode.Drive:
                     command.serviceBraking = input.brake;
-                    command.motorTorque = input.throttle ? ComputeElectricMotorTorque(speedKmh, motorTorque) : 0f;
+                    command.motorTorque = input.throttle
+                        ? ComputeElectricMotorTorque(motorSpeedKmh, motorTorque)
+                        : 0f;
                     command.activeSelectorLabel = "D";
                     return command;
 
                 case DriveSelectorMode.Auto:
                 default:
-                    bool reversing = input.brake && signedSpeed < reverseStartSpeed;
+                    bool beginReverse = planarSpeedMetersPerSecond < reverseStartSpeed;
+                    bool continueReverse = ReverseDriveActive && signedSpeed < reverseStartSpeed;
+                    bool reversing = input.brake && (beginReverse || continueReverse);
                     command.serviceBraking = input.brake && !reversing;
                     command.reverseDriving = reversing;
                     if (input.throttle)
                     {
-                        command.motorTorque = ComputeElectricMotorTorque(speedKmh, motorTorque);
+                        command.motorTorque = ComputeElectricMotorTorque(motorSpeedKmh, motorTorque);
                     }
                     else if (reversing)
                     {
-                        command.motorTorque = -ComputeElectricMotorTorque(speedKmh, reverseMotorTorque);
+                        command.motorTorque = -ComputeElectricMotorTorque(motorSpeedKmh, reverseMotorTorque);
                     }
 
                     command.activeSelectorLabel = "A";
@@ -413,7 +441,8 @@ namespace HeavySuvPrototype
                 return 1f;
             }
 
-            float intervention = Mathf.InverseLerp(absSlipStart, absSlipEnd, Mathf.Abs(forwardSlip));
+            float brakingSlip = Mathf.Max(0f, forwardSlip);
+            float intervention = Mathf.InverseLerp(absSlipStart, absSlipEnd, brakingSlip);
             return Mathf.Lerp(1f, absMinimumBrakeDelivery, intervention);
         }
 
@@ -432,7 +461,33 @@ namespace HeavySuvPrototype
                 torque = Mathf.Max(torque, handbrakeTorque);
             }
 
-            return torque * GetWheelGearingScale(wheel);
+            return torque;
+        }
+
+        private float ComputeWheelDamping(Wheel wheel, bool throttle, bool braking)
+        {
+            if (throttle || braking || !IsDriven(wheel))
+            {
+                return idleWheelDamping;
+            }
+
+            float wheelSurfaceSpeed = Mathf.Abs(wheel.collider.rpm) *
+                2f * Mathf.PI * wheel.collider.radius / 60f;
+            float longitudinalRoadSpeed = Mathf.Abs(Vector3.Dot(
+                body.GetPointVelocity(wheel.collider.transform.position),
+                wheel.collider.transform.forward));
+            float excessSpinSpeed = Mathf.Max(0f, wheelSurfaceSpeed - longitudinalRoadSpeed);
+            float dampingFactor = Mathf.InverseLerp(
+                wheelSpinDampingStartMetersPerSecond,
+                Mathf.Max(wheelSpinDampingEndMetersPerSecond, wheelSpinDampingStartMetersPerSecond + 0.01f),
+                excessSpinSpeed);
+            return Mathf.Lerp(idleWheelDamping, releasedThrottleWheelDamping, dampingFactor);
+        }
+
+        private bool ShouldAutomaticallyRespawn()
+        {
+            return respawnPoseSet &&
+                body.position.y < respawnPosition.y - Mathf.Max(automaticRespawnDropMeters, 0.1f);
         }
 
         private float GetWheelGearingScale(Wheel wheel)
@@ -491,6 +546,25 @@ namespace HeavySuvPrototype
             }
 
             return groundedWheelCount > 0 ? slip / groundedWheelCount : 0f;
+        }
+
+        private float AverageDrivenWheelSurfaceSpeedKmh()
+        {
+            float totalSpeed = 0f;
+            int drivenWheelCount = 0;
+            foreach (Wheel wheel in wheels)
+            {
+                if (wheel?.collider == null || !IsDriven(wheel))
+                {
+                    continue;
+                }
+
+                totalSpeed += Mathf.Abs(wheel.collider.rpm) *
+                    2f * Mathf.PI * wheel.collider.radius / 60f * 3.6f;
+                drivenWheelCount += 1;
+            }
+
+            return drivenWheelCount > 0 ? totalSpeed / drivenWheelCount : 0f;
         }
 
         private float ComputeTractionDelivery(float drivenWheelSlip)

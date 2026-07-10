@@ -17,13 +17,13 @@ asset churn while the gameplay-facing prototype moves to the rally format.
 - Arrow-key throttle, brake/reverse, and steering.
 - Space handbrake.
 - `R`, `N`, `D`, and `A` remain as direction/drive selectors; there are no gears.
-- Shift directly activates traction-aware 1.65x boost while held.
+- Shift directly activates a fixed full-power 1.65x boost while held.
 - `D` toggles AWD/RWD.
 - Manual steering without countersteer assistance.
 - Per-wheel ABS reduces service-brake pressure when a tire begins locking;
   the rear handbrake remains unassisted for drift initiation.
 - Layered open-source electric-motor, tire-rolling, wheelspin, and locked-tire audio.
-- HUD sound-effects volume control and a button to respawn at the assigned start.
+- HUD sound-effects volume control, manual respawn, and automatic respawn after falling from the platform.
 - Lower rally-car body and center of mass for sustained-corner rollover resistance.
 - Automatic Unity Sessions/Relay connection with up to eight owner-driven network cars.
 - Random active-car preview camera while a browser finishes joining the realtime network.

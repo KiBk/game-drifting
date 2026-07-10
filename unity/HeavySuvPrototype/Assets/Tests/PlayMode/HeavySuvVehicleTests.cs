@@ -128,6 +128,30 @@ namespace HeavySuvPrototype.Tests
         }
 
         [UnityTest]
+        public IEnumerator ReleasedThrottleRapidlyRemovesExcessDrivenWheelSpin()
+        {
+            VehicleScenarioRunner runner = new VehicleScenarioRunner();
+            yield return runner.Create();
+            runner.Vehicle.SetDriveMode(DriveMode.Rwd);
+            runner.Vehicle.Body.useGravity = false;
+            runner.Vehicle.Body.position += Vector3.up * 5f;
+            Physics.SyncTransforms();
+
+            yield return runner.Run(VehicleScenarioRunner.For(0.5f, VehicleScenarioRunner.Input(throttle: true)));
+            float poweredRpm = AverageAbsoluteWheelRpm(runner.Vehicle, front: false);
+
+            yield return runner.Run(VehicleScenarioRunner.For(0.8f, VehicleInputState.None));
+            float releasedRpm = AverageAbsoluteWheelRpm(runner.Vehicle, front: false);
+
+            Assert.Greater(poweredRpm, 250f);
+            Assert.Less(poweredRpm, 2200f);
+            Assert.Less(
+                releasedRpm,
+                poweredRpm * 0.45f,
+                $"Rear wheel RPM should decay after throttle release: {poweredRpm:0} -> {releasedRpm:0}");
+        }
+
+        [UnityTest]
         public IEnumerator SuspensionCompressesAndReboundsAfterVerticalImpulse()
         {
             VehicleScenarioRunner runner = new VehicleScenarioRunner();
@@ -251,6 +275,7 @@ namespace HeavySuvPrototype.Tests
 
             Assert.AreEqual(1f, runner.Vehicle.EvaluateAbsBrakeMultiplier(5f, 0.8f), 0.001f);
             Assert.AreEqual(1f, runner.Vehicle.EvaluateAbsBrakeMultiplier(40f, 0.1f), 0.001f);
+            Assert.AreEqual(1f, runner.Vehicle.EvaluateAbsBrakeMultiplier(40f, -0.8f), 0.001f);
             Assert.Less(runner.Vehicle.EvaluateAbsBrakeMultiplier(40f, 0.35f), 1f);
             Assert.AreEqual(
                 runner.Vehicle.absMinimumBrakeDelivery,
@@ -259,6 +284,25 @@ namespace HeavySuvPrototype.Tests
 
             runner.Vehicle.absEnabled = false;
             Assert.AreEqual(1f, runner.Vehicle.EvaluateAbsBrakeMultiplier(40f, 0.8f), 0.001f);
+        }
+
+        [UnityTest]
+        public IEnumerator RwdSidewaysBrakingUsesAllFourServiceBrakes()
+        {
+            VehicleScenarioRunner runner = new VehicleScenarioRunner();
+            yield return runner.Create();
+            runner.Vehicle.SetDriveMode(DriveMode.Rwd);
+            runner.Vehicle.absEnabled = false;
+            runner.Vehicle.Body.linearVelocity = runner.Vehicle.transform.right * 12f;
+
+            yield return runner.RunFor(Time.fixedDeltaTime, VehicleScenarioRunner.Input(brake: true));
+
+            Assert.IsFalse(runner.Vehicle.ReverseDriveActive);
+            foreach (HeavySuvVehicleController.Wheel wheel in runner.Vehicle.wheels)
+            {
+                Assert.AreEqual(0f, wheel.collider.motorTorque, 0.001f);
+                Assert.AreEqual(runner.Vehicle.brakeTorque, wheel.collider.brakeTorque, 0.001f);
+            }
         }
 
         [UnityTest]
@@ -279,6 +323,29 @@ namespace HeavySuvPrototype.Tests
             Assert.Less(Quaternion.Angle(startRotation, runner.Vehicle.transform.rotation), 0.01f);
             Assert.AreEqual(Vector3.zero, runner.Vehicle.Body.linearVelocity);
             Assert.AreEqual(Vector3.zero, runner.Vehicle.Body.angularVelocity);
+        }
+
+        [UnityTest]
+        public IEnumerator FallingBelowPlatformAutomaticallyRespawnsAtStart()
+        {
+            VehicleScenarioRunner runner = new VehicleScenarioRunner();
+            yield return runner.Create();
+            Vector3 startPosition = runner.Vehicle.transform.position;
+            Quaternion startRotation = runner.Vehicle.transform.rotation;
+
+            runner.Vehicle.Body.position = startPosition -
+                Vector3.up * (runner.Vehicle.automaticRespawnDropMeters + 1f);
+            runner.Vehicle.Body.rotation = Quaternion.Euler(30f, 70f, 20f);
+            runner.Vehicle.Body.linearVelocity = new Vector3(4f, -15f, 3f);
+            runner.Vehicle.Body.angularVelocity = new Vector3(1f, 2f, 3f);
+            Physics.SyncTransforms();
+
+            yield return runner.RunFor(Time.fixedDeltaTime, VehicleInputState.None);
+
+            Assert.Less(Vector3.Distance(startPosition, runner.Vehicle.transform.position), 0.03f);
+            Assert.Less(Quaternion.Angle(startRotation, runner.Vehicle.transform.rotation), 0.01f);
+            Assert.Less(runner.Vehicle.Body.linearVelocity.magnitude, 0.5f);
+            Assert.Less(runner.Vehicle.Body.angularVelocity.magnitude, 0.1f);
         }
 
         [UnityTest]
@@ -436,12 +503,12 @@ namespace HeavySuvPrototype.Tests
         public void ShiftBoostIsAlwaysAvailableInPrototype()
         {
             ConvoyTurboController turbo = CreateTurboController();
-            turbo.Step(0.3f, true, 0f);
+            turbo.Step(0.3f, true);
 
             Assert.IsTrue(turbo.IsEligible);
             Assert.IsTrue(turbo.IsActive);
             Assert.AreEqual(1f, turbo.Charge01);
-            Assert.Greater(turbo.TorqueMultiplier, 1.2f);
+            Assert.AreEqual(turbo.maximumTorqueMultiplier, turbo.TorqueMultiplier, 0.001f);
 
             Object.DestroyImmediate(turbo.gameObject);
         }
@@ -452,11 +519,11 @@ namespace HeavySuvPrototype.Tests
             ConvoyTurboController turbo = CreateTurboController();
             turbo.alwaysAvailable = false;
             turbo.SetGapState(new ConvoyGapState { valid = false, isTrailing = true, progressGapMeters = 30f });
-            turbo.Step(10f, false, 0f);
+            turbo.Step(10f, false);
             Assert.AreEqual(0f, turbo.Charge01);
 
             turbo.SetGapState(new ConvoyGapState { valid = true, isTrailing = false, progressGapMeters = 30f });
-            turbo.Step(10f, false, 0f);
+            turbo.Step(10f, false);
             Assert.AreEqual(0f, turbo.Charge01);
 
             Object.DestroyImmediate(turbo.gameObject);
@@ -468,13 +535,13 @@ namespace HeavySuvPrototype.Tests
             ConvoyTurboController turbo = CreateChargedTurboController();
             Assert.Greater(turbo.Charge01, 0.99f);
 
-            turbo.Step(0.3f, true, 0f);
+            turbo.Step(0.3f, true);
             Assert.IsTrue(turbo.IsActive);
             Assert.Greater(turbo.TorqueMultiplier, 1.2f);
             Assert.Less(turbo.Charge01, 1f);
 
             turbo.SetGapState(new ConvoyGapState { valid = true, isTrailing = true, progressGapMeters = 4f });
-            turbo.Step(0.5f, true, 0f);
+            turbo.Step(0.5f, true);
             Assert.IsFalse(turbo.IsActive);
             Assert.AreEqual(1f, turbo.TorqueMultiplier, 0.01f);
 
@@ -482,19 +549,16 @@ namespace HeavySuvPrototype.Tests
         }
 
         [Test]
-        public void TurboReducesDeliveryDuringSevereWheelspin()
+        public void TurboHoldsFullMultiplierWhileShiftIsHeld()
         {
-            ConvoyTurboController gripTurbo = CreateChargedTurboController();
-            ConvoyTurboController slippingTurbo = CreateChargedTurboController();
+            ConvoyTurboController turbo = CreateChargedTurboController();
 
-            gripTurbo.Step(0.28f, true, 0.1f);
-            slippingTurbo.Step(0.28f, true, 1.5f);
+            turbo.Step(0.4f, true);
+            Assert.AreEqual(turbo.maximumTorqueMultiplier, turbo.TorqueMultiplier, 0.001f);
+            turbo.Step(0.8f, true);
+            Assert.AreEqual(turbo.maximumTorqueMultiplier, turbo.TorqueMultiplier, 0.001f);
 
-            Assert.Greater(gripTurbo.TorqueMultiplier, slippingTurbo.TorqueMultiplier + 0.2f);
-            Assert.Less(slippingTurbo.SlipDelivery, gripTurbo.SlipDelivery);
-
-            Object.DestroyImmediate(gripTurbo.gameObject);
-            Object.DestroyImmediate(slippingTurbo.gameObject);
+            Object.DestroyImmediate(turbo.gameObject);
         }
 
         private static ConvoyTurboController CreateChargedTurboController()
@@ -502,7 +566,7 @@ namespace HeavySuvPrototype.Tests
             ConvoyTurboController turbo = CreateTurboController();
             turbo.alwaysAvailable = false;
             turbo.SetGapState(new ConvoyGapState { valid = true, isTrailing = true, progressGapMeters = 30f });
-            turbo.Step(5.1f, false, 0f);
+            turbo.Step(5.1f, false);
             return turbo;
         }
 
@@ -520,6 +584,24 @@ namespace HeavySuvPrototype.Tests
             }
 
             return maximum;
+        }
+
+        private static float AverageAbsoluteWheelRpm(HeavySuvVehicleController vehicle, bool front)
+        {
+            float total = 0f;
+            int count = 0;
+            foreach (HeavySuvVehicleController.Wheel wheel in vehicle.wheels)
+            {
+                if (wheel?.collider == null || wheel.isFront != front)
+                {
+                    continue;
+                }
+
+                total += Mathf.Abs(wheel.collider.rpm);
+                count += 1;
+            }
+
+            return count > 0 ? total / count : 0f;
         }
 
         private static float MaximumAverageCompression(VehicleScenarioRunner runner)

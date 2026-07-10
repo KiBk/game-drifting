@@ -16,8 +16,8 @@
 - Either player can lead at any time; sectors do not force role swaps.
 - In the current prototype, Shift directly requests a smoothly ramped maximum
   1.65x drive-torque boost with no charge meter or gap controls.
-- Boost delivery is reduced when the driven wheels are spinning heavily, so it
-  adds acceleration without adding artificial tire grip.
+- Boost holds the full requested multiplier regardless of wheelspin and does
+  not add artificial tire grip.
 - Track-progress-based catch-up eligibility remains available as a deferred
   multiplayer rule, but is intentionally disabled for the one-car demo.
 - Catch-up assistance is explicit and player-controlled; there is no hidden

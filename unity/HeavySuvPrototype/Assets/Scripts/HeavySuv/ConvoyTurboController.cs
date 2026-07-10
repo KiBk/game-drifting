@@ -20,14 +20,10 @@ namespace HeavySuvPrototype
         public float maximumTorqueMultiplier = 1.65f;
         public float rampUpSeconds = 0.28f;
         public float rampDownSeconds = 0.38f;
-        public float wheelSlipReductionStart = 0.38f;
-        public float wheelSlipReductionEnd = 1.05f;
-        public float minimumSlipDelivery = 0.32f;
 
         private ConvoyGapState gapState;
         private float charge01;
         private float torqueMultiplier = 1f;
-        private float slipDelivery = 1f;
 
         public ConvoyGapState GapState => gapState;
         public float Charge01 => alwaysAvailable ? 1f : charge01;
@@ -35,7 +31,6 @@ namespace HeavySuvPrototype
             (gapState.valid && gapState.isTrailing && gapState.progressGapMeters > disengageGapMeters);
         public bool IsActive { get; private set; }
         public float TorqueMultiplier => torqueMultiplier;
-        public float SlipDelivery => slipDelivery;
 
         public void SetGapState(ConvoyGapState state)
         {
@@ -43,7 +38,7 @@ namespace HeavySuvPrototype
             gapState = state;
         }
 
-        public void Step(float deltaTime, bool turboPressed, float drivenWheelSlip)
+        public void Step(float deltaTime, bool turboPressed)
         {
             float safeDeltaTime = Mathf.Max(0f, deltaTime);
             bool activationRequested = turboPressed && IsEligible && Charge01 > 0f;
@@ -58,9 +53,8 @@ namespace HeavySuvPrototype
                 charge01 = Mathf.Clamp01(charge01 + chargeRate * safeDeltaTime);
             }
 
-            slipDelivery = ComputeSlipDelivery(drivenWheelSlip);
             float targetMultiplier = activationRequested
-                ? 1f + (maximumTorqueMultiplier - 1f) * slipDelivery
+                ? maximumTorqueMultiplier
                 : 1f;
             float rampSeconds = targetMultiplier > torqueMultiplier ? rampUpSeconds : rampDownSeconds;
             float rampSpeed = (maximumTorqueMultiplier - 1f) / Mathf.Max(rampSeconds, 0.01f);
@@ -73,15 +67,6 @@ namespace HeavySuvPrototype
                 charge01 = Mathf.Clamp01(
                     charge01 - deliveredBoostFraction * safeDeltaTime / Mathf.Max(boostCapacitySeconds, 0.01f));
             }
-        }
-
-        public float ComputeSlipDelivery(float drivenWheelSlip)
-        {
-            float reduction = Mathf.InverseLerp(
-                wheelSlipReductionStart,
-                wheelSlipReductionEnd,
-                Mathf.Abs(drivenWheelSlip));
-            return Mathf.Lerp(1f, minimumSlipDelivery, reduction);
         }
 
         private bool CanCharge()

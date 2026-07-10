@@ -1388,7 +1388,7 @@ WheelCollider:
   m_SuspensionDistance: 0.36
   m_ForceAppPointDistance: 0.12
   m_Mass: 34
-  m_WheelDampingRate: 0.42
+  m_WheelDampingRate: 0.5
   m_ForwardFriction:
     m_ExtremumSlip: 0.32
     m_ExtremumValue: 1.05
@@ -1549,7 +1549,7 @@ WheelCollider:
   m_SuspensionDistance: 0.36
   m_ForceAppPointDistance: 0.12
   m_Mass: 34
-  m_WheelDampingRate: 0.42
+  m_WheelDampingRate: 0.5
   m_ForwardFriction:
     m_ExtremumSlip: 0.32
     m_ExtremumValue: 1.05
@@ -1707,6 +1707,9 @@ MonoBehaviour:
   brakeTorque: 3000
   handbrakeTorque: 5600
   idleWheelDamping: 0.42
+  releasedThrottleWheelDamping: 18
+  wheelSpinDampingStartMetersPerSecond: 0.8
+  wheelSpinDampingEndMetersPerSecond: 8
   reverseStartSpeed: 0.18
   motorConstantTorqueEndKmh: 72
   motorMaximumSpeedKmh: 180
@@ -1730,6 +1733,7 @@ MonoBehaviour:
   steerFadeStartKmh: 8
   steerFadeEndKmh: 72
   highSpeedSteerFactor: 0.22
+  automaticRespawnDropMeters: 8
   wheels:
   - name: Front Left
     isFront: 1
@@ -1938,9 +1942,6 @@ MonoBehaviour:
   maximumTorqueMultiplier: 1.65
   rampUpSeconds: 0.28
   rampDownSeconds: 0.38
-  wheelSlipReductionStart: 0.38
-  wheelSlipReductionEnd: 1.05
-  minimumSlipDelivery: 0.32
 --- !u!114 &8444234242289329410
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3583,7 +3584,7 @@ WheelCollider:
   m_SuspensionDistance: 0.36
   m_ForceAppPointDistance: 0.12
   m_Mass: 34
-  m_WheelDampingRate: 0.42
+  m_WheelDampingRate: 0.5
   m_ForwardFriction:
     m_ExtremumSlip: 0.32
     m_ExtremumValue: 1.05
@@ -4282,7 +4283,7 @@ WheelCollider:
   m_SuspensionDistance: 0.36
   m_ForceAppPointDistance: 0.12
   m_Mass: 34
-  m_WheelDampingRate: 0.42
+  m_WheelDampingRate: 0.5
   m_ForwardFriction:
     m_ExtremumSlip: 0.32
     m_ExtremumValue: 1.05
