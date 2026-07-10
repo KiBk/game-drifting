@@ -6,11 +6,11 @@ Convoy Rally. The deployable game image serves a checked-in WebGL snapshot from
 
 ## Multiplayer invites
 
-Opening the game without a `join` query creates a fresh private Unity
-Sessions/Relay room. The host copies the invite link shown in the multiplayer
-HUD and sends it to the other drivers. Invite links use the session code as
-`?join=<session-code>`; an expired invite stops with an option to create a new
-room instead of reconnecting forever.
+Opening the game without a `join` query creates a fresh Unity Relay allocation.
+The host copies the invite link shown in the multiplayer HUD and sends it to the
+other drivers. Invite links use the Relay code as `?join=<relay-code>`; an
+expired invite stops with an option to create a new room instead of reconnecting
+forever.
 
 ## Update the WebGL deployment snapshot
 

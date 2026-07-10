@@ -3,6 +3,7 @@
   "rootNamespace": "HeavySuvPrototype",
   "references": [
     "Unity.Netcode.Runtime",
+    "Unity.Networking.Transport",
     "Unity.Services.Authentication",
     "Unity.Services.Core",
     "Unity.Services.Multiplayer"

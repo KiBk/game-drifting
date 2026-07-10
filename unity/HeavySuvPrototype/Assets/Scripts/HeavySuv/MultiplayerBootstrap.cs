@@ -5,7 +5,7 @@ using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
 using Unity.Services.Authentication;
 using Unity.Services.Core;
-using Unity.Services.Multiplayer;
+using Unity.Services.Relay;
 using Unity.Services.Relay.Models;
 using UnityEngine;
 
@@ -16,8 +16,8 @@ namespace HeavySuvPrototype
     {
         public const ushort NetworkProtocolVersion = 7;
         public const string PreferredRelayRegion = "europe-north1";
+        public const string RelayConnectionType = "wss";
         public const float GameplayReadyTimeoutSeconds = 18f;
-        public const float HostMigrationTimeoutSeconds = 55f;
 
         public GameObject carPrefab;
         public string Status { get; private set; } = "Starting multiplayer…";
@@ -27,25 +27,24 @@ namespace HeavySuvPrototype
         public bool CanRetry => !InviteExpired && !connecting && !IsGameplayReady && retryRoutine == null;
         public bool CanCreateFreshRoom => InviteExpired && !connecting && !IsGameplayReady && retryRoutine == null;
         public bool InviteExpired { get; private set; }
-        public bool IsSessionHost => session != null && session.IsHost;
-        public string InviteCode => session == null ? string.Empty : session.Code;
-        public string InviteUrl => session == null
+        public bool IsSessionHost => IsOnlineSession && networkManager != null && networkManager.IsHost;
+        public string InviteCode => inviteCode ?? string.Empty;
+        public string InviteUrl => string.IsNullOrWhiteSpace(inviteCode)
             ? string.Empty
-            : MultiplayerInvite.BuildInviteUrl(Application.absoluteURL, session.Code);
-        public int ConnectedCount => session == null ? OfflineConnectedCount : session.Players.Count;
+            : MultiplayerInvite.BuildInviteUrl(Application.absoluteURL, inviteCode);
+        public int ConnectedCount => GetConnectedCount();
         public ulong CurrentRttMilliseconds => GetCurrentRttMilliseconds();
         public int OfflineConnectedCount { get; private set; }
 
         private readonly MultiplayerReadinessGate readiness = new MultiplayerReadinessGate();
         private NetworkManager networkManager;
         private UnityTransport transport;
-        private ISession session;
         private Coroutine retryRoutine;
         private Coroutine gameplayReadyTimeout;
-        private Coroutine hostMigrationTimeout;
         private bool shuttingDown;
         private bool connecting;
         private bool localCarReady;
+        private string inviteCode;
         private string requestedJoinCode;
 
         private void Awake()
@@ -134,24 +133,18 @@ namespace HeavySuvPrototype
 
                 if (requestedJoinCode == null)
                 {
-                    session = await MultiplayerService.Instance.CreateSessionAsync(CreateHostSessionOptions());
+                    await StartRelayHostAsync();
                 }
                 else
                 {
-                    session = await MultiplayerService.Instance.JoinSessionByCodeAsync(
-                        requestedJoinCode,
-                        CreateJoinSessionOptions());
+                    await StartRelayClientAsync(requestedJoinCode);
                 }
                 if (shuttingDown)
                 {
-                    await session.LeaveAsync();
-                    session = null;
+                    ShutdownNetwork();
                     return;
                 }
 
-                session.Deleted += OnSessionLost;
-                session.RemovedFromSession += OnSessionLost;
-                session.SessionMigrated += OnSessionMigrated;
                 InviteExpired = false;
                 IsOnlineSession = true;
                 readiness.MarkSessionReady();
@@ -166,6 +159,7 @@ namespace HeavySuvPrototype
             catch (Exception exception)
             {
                 IsOnlineSession = false;
+                ShutdownNetwork();
                 if (requestedJoinCode != null && MultiplayerInvite.IsExpiredJoinCode(exception))
                 {
                     InviteExpired = true;
@@ -186,24 +180,28 @@ namespace HeavySuvPrototype
             }
         }
 
-        private static SessionOptions CreateHostSessionOptions()
+        private async Task StartRelayHostAsync()
         {
-            return new SessionOptions
-                {
-                    Name = "Convoy Rally",
-                    MaxPlayers = MultiplayerCoordinator.MaximumParticipants,
-                    IsPrivate = true
-                }
-                .WithRelayNetwork(new RelayNetworkOptions(PreferredRelayRegion, true))
-                .WithHostMigration(new ResetOnlyMigrationDataHandler())
-                .WithNetworkOptions(new NetworkOptions { RelayProtocol = RelayProtocol.WSS });
+            Allocation allocation = await RelayService.Instance.CreateAllocationAsync(
+                MultiplayerCoordinator.MaximumParticipants - 1,
+                PreferredRelayRegion);
+            transport.SetRelayServerData(AllocationUtils.ToRelayServerData(allocation, RelayConnectionType));
+            inviteCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
+            if (!networkManager.StartHost())
+            {
+                throw new InvalidOperationException("Netcode could not start the Relay host.");
+            }
         }
 
-        private static JoinSessionOptions CreateJoinSessionOptions()
+        private async Task StartRelayClientAsync(string joinCode)
         {
-            return new JoinSessionOptions()
-                .WithHostMigration(new ResetOnlyMigrationDataHandler())
-                .WithNetworkOptions(new NetworkOptions { RelayProtocol = RelayProtocol.WSS });
+            JoinAllocation allocation = await RelayService.Instance.JoinAllocationAsync(joinCode);
+            transport.SetRelayServerData(AllocationUtils.ToRelayServerData(allocation, RelayConnectionType));
+            inviteCode = joinCode;
+            if (!networkManager.StartClient())
+            {
+                throw new InvalidOperationException("Netcode could not start the Relay client.");
+            }
         }
 
         private void StartLocalFallback()
@@ -240,7 +238,7 @@ namespace HeavySuvPrototype
 
         private void TryActivateLocalAssignment()
         {
-            if (!readiness.IsReady || session == null)
+            if (!readiness.IsReady || !IsOnlineSession)
             {
                 return;
             }
@@ -251,7 +249,6 @@ namespace HeavySuvPrototype
                 IsGameplayReady = true;
                 IsReconnecting = false;
                 StopGameplayReadyTimeout();
-                StopHostMigrationTimeout();
                 Status = "Connected — Driving";
             }
         }
@@ -263,7 +260,7 @@ namespace HeavySuvPrototype
                 return;
             }
 
-            if (IsReconnecting || hostMigrationTimeout != null)
+            if (IsReconnecting)
             {
                 return;
             }
@@ -271,26 +268,8 @@ namespace HeavySuvPrototype
             IsGameplayReady = false;
             localCarReady = false;
             readiness.Reset();
-            readiness.MarkSessionReady();
-            Status = "Host left — migrating room…";
             StopGameplayReadyTimeout();
-            hostMigrationTimeout = StartCoroutine(WaitForHostMigration());
-        }
-
-        private void OnSessionMigrated()
-        {
-            if (!shuttingDown)
-            {
-                Status = IsGameplayReady ? "Connected — Driving" : "New host ready — restoring cars…";
-            }
-        }
-
-        private void OnSessionLost()
-        {
-            if (!shuttingDown)
-            {
-                BeginReconnect("Session lost — retrying");
-            }
+            BeginReconnect("Host left — retrying invite");
         }
 
         private void BeginReconnect(string status)
@@ -309,14 +288,13 @@ namespace HeavySuvPrototype
             IsGameplayReady = false;
             Status = status;
             StopGameplayReadyTimeout();
-            StopHostMigrationTimeout();
             StopRetryRoutine();
             retryRoutine = StartCoroutine(ReconnectAfterDelay(minimumDelay, maximumDelay));
         }
 
         private IEnumerator ReconnectAfterDelay(float minimumDelay, float maximumDelay)
         {
-            yield return LeaveCurrentSession();
+            yield return LeaveCurrentNetwork();
             float delay = minimumDelay >= maximumDelay
                 ? minimumDelay
                 : UnityEngine.Random.Range(minimumDelay, maximumDelay);
@@ -329,31 +307,25 @@ namespace HeavySuvPrototype
             _ = ConnectOnlineAsync();
         }
 
-        private IEnumerator LeaveCurrentSession()
+        private IEnumerator LeaveCurrentNetwork()
         {
             readiness.Reset();
             localCarReady = false;
-
-            ISession currentSession = session;
-            session = null;
             IsOnlineSession = false;
-            if (currentSession == null)
+            inviteCode = null;
+            if (networkManager == null)
             {
                 yield break;
             }
 
-            currentSession.Deleted -= OnSessionLost;
-            currentSession.RemovedFromSession -= OnSessionLost;
-            currentSession.SessionMigrated -= OnSessionMigrated;
-            Task leaveTask = currentSession.LeaveAsync();
-            while (!leaveTask.IsCompleted)
+            if (networkManager.IsListening && !networkManager.ShutdownInProgress)
             {
-                yield return null;
+                networkManager.Shutdown();
             }
 
-            if (leaveTask.IsFaulted)
+            while (networkManager.ShutdownInProgress)
             {
-                Debug.LogWarning($"Leaving multiplayer session failed: {leaveTask.Exception}");
+                yield return null;
             }
         }
 
@@ -381,21 +353,6 @@ namespace HeavySuvPrototype
             }
         }
 
-        private IEnumerator WaitForHostMigration()
-        {
-            float deadline = Time.realtimeSinceStartup + HostMigrationTimeoutSeconds;
-            while (!IsGameplayReady && !IsReconnecting && Time.realtimeSinceStartup < deadline)
-            {
-                yield return null;
-            }
-
-            hostMigrationTimeout = null;
-            if (!IsGameplayReady && !IsReconnecting)
-            {
-                BeginReconnect("Host migration timed out — retrying");
-            }
-        }
-
         private void StopRetryRoutine()
         {
             if (retryRoutine == null)
@@ -418,15 +375,28 @@ namespace HeavySuvPrototype
             gameplayReadyTimeout = null;
         }
 
-        private void StopHostMigrationTimeout()
+        private int GetConnectedCount()
         {
-            if (hostMigrationTimeout == null)
+            if (networkManager == null || !networkManager.IsListening)
             {
-                return;
+                return OfflineConnectedCount;
             }
 
-            StopCoroutine(hostMigrationTimeout);
-            hostMigrationTimeout = null;
+            if (networkManager.IsServer)
+            {
+                return networkManager.ConnectedClientsIds.Count;
+            }
+
+            return networkManager.IsConnectedClient ? 2 : 0;
+        }
+
+        private void ShutdownNetwork()
+        {
+            inviteCode = null;
+            if (networkManager != null && networkManager.IsListening && !networkManager.ShutdownInProgress)
+            {
+                networkManager.Shutdown();
+            }
         }
 
         private ulong GetCurrentRttMilliseconds()
@@ -455,31 +425,18 @@ namespace HeavySuvPrototype
             return maximumRtt;
         }
 
-        private async void OnDestroy()
+        private void OnDestroy()
         {
             shuttingDown = true;
             StopRetryRoutine();
             StopGameplayReadyTimeout();
-            StopHostMigrationTimeout();
             if (networkManager != null)
             {
                 networkManager.OnClientConnectedCallback -= OnClientConnected;
                 networkManager.OnClientDisconnectCallback -= OnClientDisconnected;
             }
 
-            if (session != null)
-            {
-                session.Deleted -= OnSessionLost;
-                session.RemovedFromSession -= OnSessionLost;
-                session.SessionMigrated -= OnSessionMigrated;
-                try
-                {
-                    await session.LeaveAsync();
-                }
-                catch
-                {
-                }
-            }
+            ShutdownNetwork();
         }
     }
 }

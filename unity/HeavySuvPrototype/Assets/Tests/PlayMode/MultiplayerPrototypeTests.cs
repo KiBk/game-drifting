@@ -92,6 +92,8 @@ namespace HeavySuvPrototype.Tests
             Assert.AreEqual(7, MultiplayerBootstrap.NetworkProtocolVersion);
             Assert.AreEqual("join", MultiplayerInvite.QueryParameter);
             Assert.AreEqual("europe-north1", MultiplayerBootstrap.PreferredRelayRegion);
+            Assert.AreEqual("wss", MultiplayerBootstrap.RelayConnectionType);
+            Assert.AreEqual(7, MultiplayerCoordinator.MaximumParticipants - 1);
             Assert.AreEqual(50u, MultiplayerNetworkTuning.TickRate);
         }
 
@@ -125,15 +127,6 @@ namespace HeavySuvPrototype.Tests
 
             Assert.IsTrue(MultiplayerInvite.IsExpiredJoinCode(wrapped));
             Assert.IsFalse(MultiplayerInvite.IsExpiredJoinCode(new System.Exception("Network timeout")));
-        }
-
-        [Test]
-        public void HostMigrationIntentionallyResetsGameState()
-        {
-            ResetOnlyMigrationDataHandler handler = new ResetOnlyMigrationDataHandler();
-
-            CollectionAssert.AreEqual(new byte[] { 1 }, handler.Generate());
-            Assert.DoesNotThrow(() => handler.Apply(new byte[] { 1, 2, 3 }));
         }
 
         [Test]
