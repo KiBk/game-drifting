@@ -3,7 +3,8 @@
     {
       "source": "deploy/webgl",
       "base": "/game-drifting/",
-      "gunzip": true
+      "gunzip": true,
+      "rewrite_root_urls": false
     }
   ]
 }

@@ -51,10 +51,13 @@ for part in CONFIG['parts']:
             first = re.split(r'[/#?]',m[2],maxsplit=1)[0]
             if target.suffix in ('.js','.mjs') and first not in root_assets: return m[0]
             return m[1]+base+m[2]
-        text = re.sub(r'(["\x27`])/(?!/)([^"\x27`\s<>]*)',rebase,text)
-        text = re.sub(r'url\(/(?!/)([^)]+)\)',lambda m:'url('+base+m[1]+')',text)
+        if part.get('rewrite_root_urls',True):
+            text = re.sub(r'(["\x27`])/(?!/)([^"\x27`\s<>]*)',rebase,text)
+            text = re.sub(r'url\(/(?!/)([^)]+)\)',lambda m:'url('+base+m[1]+')',text)
         if part.get('gunzip') and target.name == 'index.html':
             text = text.replace('.data.gz','.data').replace('.framework.js.gz','.framework.js').replace('.wasm.gz','.wasm')
+            assert 'buildUrl + "/WebGL.loader.js' in text, 'Unity relative loader path changed'
+            assert 'buildUrl + "/WebGL.wasm' in text, 'Unity relative WASM path changed'
         target.write_text(text)
 
 # The original exports used only custom map markers, but vendored Leaflet CSS
