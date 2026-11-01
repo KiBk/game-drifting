@@ -1,0 +1,9 @@
+{
+  "parts": [
+    {
+      "source": "deploy/webgl",
+      "base": "/game-drifting/",
+      "gunzip": true
+    }
+  ]
+}

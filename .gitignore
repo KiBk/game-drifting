@@ -15,3 +15,9 @@ unity/**/Logs/
 unity/**/UserSettings/
 unity/**/Builds/
 unity/**/Data/
+
+/_site/
+
+__pycache__/
+
+*.pyc

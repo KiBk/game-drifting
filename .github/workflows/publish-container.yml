@@ -1,13 +1,6 @@
 name: Publish container image
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - Dockerfile
-      - deploy/**
-      - .github/workflows/publish-container.yml
   workflow_dispatch:
 
 permissions:
